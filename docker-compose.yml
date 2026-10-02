@@ -1,0 +1,52 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: messenger_db
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-messenger_db}',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: ./backend
+    container_name: messenger_backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '8000:8000'
+    networks:
+      - internal
+
+volumes:
+  pg_data:
+
+networks:
+  internal:
+    driver: bridge

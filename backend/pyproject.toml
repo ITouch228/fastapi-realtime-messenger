@@ -1,0 +1,51 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+exclude = [".venv", "build", "dist", ".mypy_cache", ".ruff_cache", "migration"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "Q", "UP", "B", "SIM", "C4", "PL"]
+ignore = [
+    "E203",
+    "E501",
+    "B008",
+    "B904",
+    "PLR2004",
+    "PLR0911",
+    "PLR0912",
+    "PLR0913",
+]
+fixable = ["ALL"]
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "single"
+multiline-quotes = "double"
+docstring-quotes = "double"
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "migration.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = [
+    "app.routes.*",
+    "app.services.files",
+    "app.services.messages",
+    "app.services.auth",
+    "app.services.users",
+    "app.services.chats",
+]
+disable_error_code = ["union-attr", "arg-type", "no-any-return", "assignment"]
+
+[[tool.mypy.overrides]]
+module = "aiofiles.*"
+ignore_missing_imports = true

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Форма регистрации</title>
+    <link href="/static/css/register.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="container">
+      <div class="form-container register-container">
+        <h2>Регистрация</h2>
+        <h4>{{ message }}</h4>
+        <form id="registerForm" action="/api/auth/register" method="post">
+          <div class="form-group">
+            <label for="register-username">Логин</label>
+            <input
+              type="text"
+              id="register-username"
+              name="username"
+              required
+            />
+          </div>
+          <div class="form-group">
+            <label for="register-email">Email</label>
+            <input type="email" id="register-email" name="email" required />
+          </div>
+          <div class="form-group">
+            <label for="register-password">Пароль</label>
+            <input
+              type="password"
+              id="register-password"
+              name="password"
+              required
+            />
+          </div>
+          <button type="submit">Зарегистрироваться</button>
+          <a style="text-decoration: none; color: grey" href="./login"
+            ><h4>Уже есть аккаунт? Войти</h4></a
+          >
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

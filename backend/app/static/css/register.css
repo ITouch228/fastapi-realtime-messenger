@@ -1,0 +1,145 @@
+:root {
+  --primary: #ff4f00;
+  --secondary: #ff0000;
+  --background: #e4dbd4;
+  --surface: #f0f8ff;
+  --border: #e0e0e0;
+  --text-primary: #2b2d42;
+  --text-secondary: #8d99ae;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: 'Arial', sans-serif;
+
+  transform: translateX(-50%);
+  animation: ani 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes ani {
+  0% {
+    opacity: 0.2;
+    transform: translateX(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+body {
+  background-color: var(--background);
+  margin: 0;
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+.container {
+  display: flex;
+  max-width: 800px;
+  width: 100%;
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.form-container {
+  padding: 40px;
+  width: 50%;
+}
+
+.register-container {
+  background: #f9f9f9;
+}
+
+h2 {
+  margin-bottom: 30px;
+  color: var(--text-primary);
+  font-size: 24px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 14px;
+  transition: border 0.3s;
+}
+
+input:focus {
+  border-color: var(--border);
+  outline: none;
+}
+
+button {
+  width: 100%;
+  padding: 12px;
+  background-color: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 5px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+button:hover {
+  background-color: var(--secondary);
+}
+
+.divider {
+  text-align: center;
+  margin: 20px 0;
+  color: #999;
+  font-size: 14px;
+  position: relative;
+}
+
+.divider::before,
+.divider::after {
+  content: '';
+  flex: 1;
+  border-bottom: 1px solid #ddd;
+  position: absolute;
+  top: 50%;
+  width: 45%;
+}
+
+.divider::before {
+  right: 55%;
+}
+
+.divider::after {
+  left: 55%;
+}
+
+a {
+  text-decoration: none;
+  color: grey;
+}
+
+@media (max-width: 768px) {
+  .container {
+    flex-direction: column;
+  }
+
+  .form-container {
+    width: 100%;
+  }
+}
