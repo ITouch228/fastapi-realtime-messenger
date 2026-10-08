@@ -2,19 +2,18 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.templating import Jinja2Templates
 
 from app.dao.dao import ChatDAO, MessageDAO
 from app.database import get_session
 from app.schemas.user import UserInDB
 from app.services.auth import get_current_user_from_cookie, require_user
+from app.services.event_bus import bus
 from app.services.files import add_file_to_db, save_file
 from app.services.messages import build_message_out
 from app.services.websocket_manager import manager
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-templates: Jinja2Templates = Jinja2Templates(directory='app/templates')
 
 
 router = APIRouter(prefix='/messages')
@@ -48,6 +47,7 @@ async def send_message(
             await manager.send_personal_message(
                 {'type': 'new_chat', 'message': chat.dict()}, target_id
             )
+            await bus.publish(target_id, {'type': 'new_chat', 'chat_id': chat_id})
         else:
             try:
                 chat_id = int(chat_id)
@@ -97,6 +97,14 @@ async def send_message(
                         {'type': 'new_message', 'message': message_out.model_dump()},
                         user,
                     )
+                    await bus.publish(
+                        user,
+                        {
+                            'type': 'new_message',
+                            'chat_id': chat_id,
+                            'message_id': message.id,
+                        },
+                    )
 
         return {'status': 'success', 'message': message_out}
 
@@ -114,7 +122,21 @@ async def delete_message(
     current_user: UserInDB = Depends(get_current_user_from_cookie),
     session: AsyncSession = Depends(get_session),
 ):
+    current_user = require_user(current_user)
+
+    message = await MessageDAO.find_one_or_none(session=session, id=message_id)
+    if not message:
+        raise HTTPException(status_code=404, detail='Message not found')
+
+    # Удалять может только автор сообщения
+    if message.user_from_id != current_user.id:
+        raise HTTPException(status_code=403, detail='Forbidden')
+
+    # Дополнительная проверка: пользователь состоит в чате сообщения
+    chat = await ChatDAO.find_one_or_none(session=session, id=message.chat_id)
+    if not chat or current_user.id not in (chat.users or []):
+        raise HTTPException(status_code=403, detail='Forbidden')
+
     if await MessageDAO.delete_message(session=session, message_id=message_id):
         return {'status': 'ok'}
-    else:
-        return {'status': 'denied'}
+    return {'status': 'denied'}

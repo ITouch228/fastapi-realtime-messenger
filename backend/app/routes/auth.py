@@ -13,11 +13,11 @@ from fastapi import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import JSONResponse, RedirectResponse
-from starlette.templating import Jinja2Templates
 
 from app.config import settings
 from app.dao.dao import UserDAO
 from app.database import get_session
+from app.deps import templates
 from app.schemas.user import UserCreate, UserInDB, UserResponse
 from app.services.auth import (
     authenticate_user,
@@ -27,23 +27,22 @@ from app.services.auth import (
     get_password_hash,
     verify_token,
 )
+from app.services.limiter import limiter
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-templates: Jinja2Templates = Jinja2Templates(directory='app/templates')
-
-
 router = APIRouter(prefix='/auth')
 
 
 @router.post('/register', status_code=status.HTTP_201_CREATED)
+@limiter.limit('3/hour')
 async def post_register(
     request: Request,
     user_data: UserCreate = Form(...),
     session: AsyncSession = Depends(get_session),
 ):
     logger.info(
-        f'Registration attempt for user with username: {user_data.username}, email: {user_data.email}'
+        f'Registration attempt for user with username: {user_data.username} and email: {user_data.email}'
     )
 
     username = user_data.username.strip()
@@ -124,6 +123,7 @@ async def post_register(
 
 
 @router.post('/login')
+@limiter.limit('5/minute')
 async def post_login(
     request: Request,
     response: Response,
@@ -139,7 +139,7 @@ async def post_login(
             logger.warning(f'User not found: {username}')
             return templates.TemplateResponse(
                 'login.html',
-                {'request': request, 'message': 'Неверное имя пользователя'},
+                {'request': request, 'message': 'Неверный логин или пароль'},
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -150,7 +150,7 @@ async def post_login(
             logger.warning(f'Invalid password for user: {username}')
             return templates.TemplateResponse(
                 'login.html',
-                {'request': request, 'message': 'Неверный пароль'},
+                {'request': request, 'message': 'Неверный логин или пароль'},
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
 

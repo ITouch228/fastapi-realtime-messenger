@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,7 +24,7 @@ class Settings(BaseSettings):
 
     # Cookie settings
     COOKIE_SECURE: bool = Field(default=False)
-    COOKIE_SAMESITE: str = Field(default='lax')
+    COOKIE_SAMESITE: Literal['lax', 'strict', 'none'] = Field(default='lax')
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / 'app' / '.env', env_file_encoding='utf-8', extra='ignore'

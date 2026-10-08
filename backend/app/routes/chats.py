@@ -1,8 +1,5 @@
-import logging
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.templating import Jinja2Templates
 
 from app.dao.dao import ChatDAO, MessageDAO
 from app.database import get_session
@@ -13,7 +10,6 @@ from app.services.messages import build_message_out
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-templates: Jinja2Templates = Jinja2Templates(directory='app/templates')
 
 
 router = APIRouter(prefix='/chats')
@@ -118,6 +114,6 @@ async def delete_chat(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Forbidden')
 
     await ChatDAO.delete_chat(session=session, chat_id=chat_id)
-    logging.info(f'Deleted chat with id: {chat_id}')
+    logger.info(f'Deleted chat with id: {chat_id}')
 
     return {'status': 'success'}

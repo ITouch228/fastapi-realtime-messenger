@@ -2,17 +2,16 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import Cookie, Depends, HTTPException, Security, status
 from jose import jwt
-from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.dao.dao import ChatDAO, MessageDAO, UserDAO
 from app.database import get_session
+from app.deps import pwd_context
 from app.schemas.user import UserInDB
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-pwd_context = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
 
 def verify_password(plain_password, hashed_password):

@@ -1,9 +1,11 @@
 import mimetypes
 import os
+from typing import Literal
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import FILES_ROOT
 from app.dao.dao import FileDAO, MessageDAO
 from app.schemas.file import FileInDb, FileMeta
 from app.schemas.message import MessageInDb as FullMessageSchema
@@ -29,18 +31,21 @@ ALLOWED_MIME_TYPES = {
 logger = get_logger(__name__)
 
 
-def build_file_meta(file_id: int, file_path: str) -> FileMeta:
-    mime_type, _ = mimetypes.guess_type(file_path)
+def build_file_meta(file_id: int, file_path: str | os.PathLike[str]) -> FileMeta:
+    path_str = os.fspath(file_path)
+    mime_type, _ = mimetypes.guess_type(path_str)
     mime_type = mime_type or 'application/octet-stream'
-    kind = 'image' if mime_type.startswith('image/') else 'file'
+    kind: Literal['image', 'file'] = (
+        'image' if mime_type.startswith('image/') else 'file'
+    )
 
     return FileMeta(
         id=file_id,
         kind=kind,
         url=f'/api/files/download_file/{file_id}',
         mime_type=mime_type,
-        filename=os.path.basename(file_path),
-        size=os.path.getsize(file_path) if os.path.exists(file_path) else None,
+        filename=os.path.basename(path_str),
+        size=os.path.getsize(path_str) if os.path.exists(path_str) else None,
     )
 
 
@@ -61,7 +66,7 @@ async def build_message_out(message, session: AsyncSession) -> MessageOut:
             raise HTTPException(status_code=404, detail='File not found')
 
         abs_file_path = os.path.abspath(file_path)
-        expected_prefix = os.path.abspath('app/static/files/')
+        expected_prefix = str(FILES_ROOT.resolve())
         if not abs_file_path.startswith(expected_prefix):
             raise HTTPException(status_code=400, detail='Invalid file path')
 

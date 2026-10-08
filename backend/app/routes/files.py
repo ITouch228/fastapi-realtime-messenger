@@ -1,5 +1,4 @@
 import io
-import logging
 import mimetypes
 import os
 
@@ -8,7 +7,6 @@ from fastapi.responses import Response
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
-from starlette.templating import Jinja2Templates
 
 from app.dao.dao import FileDAO
 from app.database import get_session
@@ -23,7 +21,6 @@ from app.utils.file_path import resolve_file_path
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-templates: Jinja2Templates = Jinja2Templates(directory='app/templates')
 
 
 router = APIRouter(prefix='/files')
@@ -93,7 +90,7 @@ async def download_file(
                     },
                 )
         except Exception as e:
-            logging.error(f'Image processing error: {str(e)}')
+            logger.error(f'Image processing error: {str(e)}')
             return FileResponse(file_path, media_type=mime_type)
 
     return FileResponse(

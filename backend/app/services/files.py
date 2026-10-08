@@ -127,18 +127,32 @@ async def get_file_path_in_db(
         raise HTTPException(status_code=400, detail='File search failed')
 
 
-async def compress_image(
-    image_bytes: bytes, format: str = 'WEBP', quality: int = 85
-) -> bytes:
-    """Сжимает изображение без потерь (или с настройкой качества)."""
+async def compress_image(image_bytes: bytes, quality: int = 85) -> bytes:
+    """Сжимает JPEG/WEBP с потерями, оптимизирует PNG, сохраняет анимацию GIF.
+
+    Возвращает оригинальные байты, если сжатие не удалось или не уменьшило размер.
+    """
     try:
         img = Image.open(io.BytesIO(image_bytes))
+        fmt = (img.format or '').upper()
 
-        # Конвертация в WebP (лучший баланс)
+        # GIF: Image.open читает только первый кадр, пересжатие убило бы анимацию.
+        if fmt == 'GIF':
+            return image_bytes
+
         output_buffer = io.BytesIO()
-        img.save(output_buffer, format=format, quality=quality, lossless=True)
+        if fmt == 'PNG':
+            # PNG остаётся без потерь, но с оптимизацией палитры/IDAT.
+            img.save(output_buffer, format='PNG', optimize=True)
+        else:
+            # JPEG/WEBP/bmp: lossy WebP даёт лучший баланс размера и качества.
+            if img.mode not in ('RGB', 'RGBA'):
+                img = img.convert('RGB')
+            img.save(output_buffer, format='WEBP', quality=quality, method=4)
 
-        return output_buffer.getvalue()
+        compressed = output_buffer.getvalue()
+        # Никогда не увеличиваем файл.
+        return compressed if len(compressed) < len(image_bytes) else image_bytes
     except Exception as e:
         logger.error(f'Image compression error: {str(e)}')
         return image_bytes  # Возвращаем оригинал, если ошибка

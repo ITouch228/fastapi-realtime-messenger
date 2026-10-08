@@ -1,14 +1,15 @@
 import logging
 import sys
 from datetime import datetime
-from pathlib import Path
+
+from app.core.config import LOGS_DIR
 
 
 def setup_logging():
     """Setup centralized logging configuration for the application"""
 
-    # Create logs directory if it doesn't exist
-    log_dir = Path('/logs')
+    # Create logs directory if it doesn't exist (project-relative, not filesystem root)
+    log_dir = LOGS_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Define log format
@@ -30,13 +31,13 @@ def setup_logging():
     console_handler.setFormatter(log_format)
 
     # File handler for general logs
-    general_log_file = log_dir / f"app_{datetime.now().strftime('%Y%m%d')}.log"
+    general_log_file = log_dir / f'app_{datetime.now().strftime("%Y%m%d")}.log'
     file_handler = logging.FileHandler(general_log_file, encoding='utf-8')
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(log_format)
 
     # Error file handler for errors only
-    error_log_file = log_dir / f"errors_{datetime.now().strftime('%Y%m%d')}.log"
+    error_log_file = log_dir / f'errors_{datetime.now().strftime("%Y%m%d")}.log'
     error_handler = logging.FileHandler(error_log_file, encoding='utf-8')
     error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(log_format)
