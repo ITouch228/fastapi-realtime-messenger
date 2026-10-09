@@ -15,7 +15,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-messenger_db}',
+          'pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-messenger_db}',
         ]
       interval: 5s
       timeout: 3s

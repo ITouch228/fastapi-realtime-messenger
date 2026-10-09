@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = Field(default='')
     DB_HOST: str = Field(default='localhost')
     DB_PORT: int = Field(default=5432)
-    DB_NAME: str = Field(default='messanger_db')
+    DB_NAME: str = Field(default='messenger_db')
 
     # JWT
     ALGORITHM: str = 'RS256'
