@@ -87,22 +87,20 @@ async def send_message(
         message_out = await build_message_out(session=session, message=message)
 
         # Отправка уведомления через WebSocket
-        chat = await ChatDAO.find_one_or_none(session, id=chat_id)
-        if chat:
-            for user in chat.users:
-                if user != current_user.id:
-                    await manager.send_personal_message(
-                        {'type': 'new_message', 'message': message_out.model_dump()},
-                        user,
-                    )
-                    await bus.publish(
-                        user,
-                        {
-                            'type': 'new_message',
-                            'chat_id': chat_id,
-                            'message_id': message.id,
-                        },
-                    )
+        for user in chat.users or []:
+            if user != current_user.id:
+                await manager.send_personal_message(
+                    {'type': 'new_message', 'message': message_out.model_dump()},
+                    user,
+                )
+                await bus.publish(
+                    user,
+                    {
+                        'type': 'new_message',
+                        'chat_id': chat_id,
+                        'message_id': message.id,
+                    },
+                )
 
         return {'status': 'success', 'message': message_out}
 

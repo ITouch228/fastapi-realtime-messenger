@@ -36,6 +36,7 @@ async def ensure_can_access_file(
     chats = [
         await ChatDAO.find_one_or_none(session=session, id=msg.chat_id) for msg in msgs
     ]
+    chats = [chat for chat in chats if chat is not None]
     if not chats:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail='File not found'

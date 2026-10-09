@@ -6,9 +6,8 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import FILES_ROOT
-from app.dao.dao import FileDAO, MessageDAO
+from app.dao.dao import FileDAO
 from app.schemas.file import FileInDb, FileMeta
-from app.schemas.message import MessageInDb as FullMessageSchema
 from app.schemas.message import MessageOut
 from app.utils.file_path import resolve_file_path
 from app.utils.logging_config import get_logger
@@ -88,41 +87,3 @@ async def build_message_out(message, session: AsyncSession) -> MessageOut:
         message_file_id=message.message_file_id,
         file=file_meta,
     )
-
-
-async def get_messages_by_chat_id_in_db(chat_id: int, session: AsyncSession):
-    logger.info(f'get_messages_by_chat_id_in_db: {chat_id}')
-    messages = await MessageDAO.find_all_or_none(session=session, chat_id=chat_id)
-
-    return messages
-
-
-async def add_message_to_db(
-    chat_id: int,
-    user_from_id: int,
-    message_text: str,
-    message_file_id: int | None,
-    time: str,
-    session: AsyncSession,
-):
-    logger.info(f'add_message_to_db: chat_id = {chat_id}')
-    message = await MessageDAO.add(
-        session=session,
-        chat_id=chat_id,
-        user_from_id=user_from_id,
-        message_text=message_text,
-        message_file_id=message_file_id,
-        time=time,
-    )
-
-    message_id = FullMessageSchema.model_validate(message).id
-
-    return message_id
-
-
-async def delete_message_in_db(message_id: int, session: AsyncSession):
-    logger.info(f'delete_message_in_db: {message_id}')
-
-    delete = await MessageDAO.delete_message(message_id=message_id, session=session)
-
-    return delete
