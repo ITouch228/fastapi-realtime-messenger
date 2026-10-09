@@ -82,7 +82,7 @@ async def download_file(
                     output.getvalue(),
                     media_type=f'image/{output_format.lower()}',
                     headers={
-                        'Cache-Control': 'public, max-age=31536000',
+                        'Cache-Control': 'private, max-age=31536000',
                         'Content-DPR': '1.0',
                         'Vary': 'Accept',
                     },
@@ -94,5 +94,5 @@ async def download_file(
     return FileResponse(
         file_path,
         media_type=mime_type,
-        headers={'Cache-Control': 'public, max-age=31536000'},
+        headers={'Cache-Control': 'private, max-age=31536000'},
     )

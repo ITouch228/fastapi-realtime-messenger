@@ -14,6 +14,10 @@ from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+# Валидный bcrypt-хэш для выравнивания времени ответа при несуществующем/неактивном
+# пользователе (защита от timing-атак). Пароль заведомо не совпадёт.
+DUMMY_PASSWORD_HASH = '$2b$12$siY3fyd7Yxk4mCJ//ZnNpuCdTU86GWhVGg1qTgiz5shljZicyFoza'
+
 
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
@@ -54,11 +58,11 @@ async def authenticate_user(
 ) -> UserInDB | None:
     user = await UserDAO.find_one_or_none(session=session, username=username)
     if not user:
-        verify_password(password, '$2b$12$dummy_hash_for_timing_attack_prevention')
+        verify_password(password, DUMMY_PASSWORD_HASH)
         return None
 
     if not user.is_active:
-        verify_password(password, '$2b$12$dummy_hash_for_timing_attack_prevention')
+        verify_password(password, DUMMY_PASSWORD_HASH)
         return None
 
     user_in_db = UserInDB.model_validate(user)

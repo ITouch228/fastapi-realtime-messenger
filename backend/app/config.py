@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     REDIS_URL: str = Field(default='redis://localhost:6379/0')
 
     # Cookie
-    COOKIE_SECURE: bool = Field(default=False)
+    # Безопасный дефолт: куки только по HTTPS. Для локальной разработки
+    # по http задайте COOKIE_SECURE=false в .env.
+    COOKIE_SECURE: bool = Field(default=True)
     COOKIE_SAMESITE: Literal['lax', 'strict', 'none'] = Field(default='lax')
 
     model_config = SettingsConfigDict(

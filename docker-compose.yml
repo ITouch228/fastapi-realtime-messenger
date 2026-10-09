@@ -23,6 +23,18 @@ services:
     networks:
       - internal
 
+  redis:
+    image: redis:7-alpine
+    container_name: messenger_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - internal
+
   backend:
     build:
       context: ./backend
@@ -36,8 +48,11 @@ services:
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_NAME: ${DB_NAME}
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     ports:
       - '8000:8000'

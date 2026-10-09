@@ -224,7 +224,9 @@ async def read_me(current_user: UserInDB = Depends(get_current_user)):
 
 @router.post('/refresh')
 async def refresh_token(
-    response: Response, refresh: str = Cookie(default=None, alias='refresh')
+    response: Response,
+    refresh: str = Cookie(default=None, alias='refresh'),
+    session: AsyncSession = Depends(get_session),
 ):
     if not refresh:
         raise HTTPException(
@@ -243,6 +245,16 @@ async def refresh_token(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail='Refresh token has been revoked',
+        )
+
+    # Деактивированный/удалённый пользователь не должен продлевать сессию
+    user = await UserDAO.find_one_or_none(session=session, id=user_id)
+    if user is None or not user.is_active:
+        await remove_session(session_id)
+        logger.warning(f'Refresh rejected for inactive/unknown user_id={user_id}')
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='User is not active',
         )
 
     # Ротация сессии: инвалидируем старую и выдаём новую
