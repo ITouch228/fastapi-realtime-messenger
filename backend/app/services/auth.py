@@ -9,7 +9,7 @@ from app.dao.dao import ChatDAO, MessageDAO, UserDAO
 from app.database import get_session
 from app.deps import pwd_context
 from app.schemas.user import UserInDB
-from app.services.session_manager import get_session_user_id
+from app.services.session_manager import SessionManager, get_session_manager
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -133,6 +133,7 @@ def get_token_from_access_cookie(
 async def get_current_user_from_cookie(
     session: AsyncSession = Depends(get_session),
     access: str = Security(get_token_from_access_cookie),
+    session_manager: SessionManager = Depends(get_session_manager),
 ) -> UserInDB | None:
     if not access:
         return None
@@ -142,7 +143,7 @@ async def get_current_user_from_cookie(
     if not session_id:
         return None
 
-    user_id = await get_session_user_id(session_id)
+    user_id = await session_manager.get_user_id(session_id)
     if user_id is None:
         logger.warning(f'Session expired or revoked: session_id={session_id}')
         return None

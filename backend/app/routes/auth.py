@@ -27,11 +27,7 @@ from app.services.auth import (
     verify_token,
 )
 from app.services.limiter import limiter
-from app.services.session_manager import (
-    create_session,
-    get_session_user_id,
-    remove_session,
-)
+from app.services.session_manager import SessionManager, get_session_manager
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -116,6 +112,7 @@ async def post_login(
     username: str = Form(...),
     password: str = Form(...),
     session: AsyncSession = Depends(get_session),
+    session_manager: SessionManager = Depends(get_session_manager),
 ):
     try:
         logger.info(f'Login attempt for username: {username}')
@@ -145,7 +142,7 @@ async def post_login(
                 minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
             )
             # session_id кладём в sub токенов, а user_id храним значением ключа в Redis
-            session_id = await create_session(authenticated_user.id)
+            session_id = await session_manager.create(authenticated_user.id)
             access_token = create_access_token(
                 session_id=session_id,
                 expires_delta=access_token_expires,
@@ -190,12 +187,15 @@ async def post_login(
 
 
 @router.post('/logout')
-async def logout(access: str = Cookie(default=None, alias='access')):
+async def logout(
+    access: str = Cookie(default=None, alias='access'),
+    session_manager: SessionManager = Depends(get_session_manager),
+):
     if access:
         # sub access-токена хранит session_id, по нему удаляем сессию в Redis
         session_id = verify_token(access, token_type='access')
         if session_id:
-            await remove_session(session_id)
+            await session_manager.remove(session_id)
 
     response = JSONResponse(content={'status': 'success'})
 
@@ -227,6 +227,7 @@ async def refresh_token(
     response: Response,
     refresh: str = Cookie(default=None, alias='refresh'),
     session: AsyncSession = Depends(get_session),
+    session_manager: SessionManager = Depends(get_session_manager),
 ):
     if not refresh:
         raise HTTPException(
@@ -240,7 +241,7 @@ async def refresh_token(
             status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid refresh token'
         )
 
-    user_id = await get_session_user_id(session_id)
+    user_id = await session_manager.get_user_id(session_id)
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -250,7 +251,7 @@ async def refresh_token(
     # Деактивированный/удалённый пользователь не должен продлевать сессию
     user = await UserDAO.find_one_or_none(session=session, id=user_id)
     if user is None or not user.is_active:
-        await remove_session(session_id)
+        await session_manager.remove(session_id)
         logger.warning(f'Refresh rejected for inactive/unknown user_id={user_id}')
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -258,8 +259,8 @@ async def refresh_token(
         )
 
     # Ротация сессии: инвалидируем старую и выдаём новую
-    await remove_session(session_id)
-    new_session_id = await create_session(user_id)
+    await session_manager.remove(session_id)
+    new_session_id = await session_manager.create(user_id)
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     new_access_token = create_access_token(

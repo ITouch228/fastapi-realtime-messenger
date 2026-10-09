@@ -1,42 +1,49 @@
-"""Session manager: maps refresh tokens → user_id in Redis."""
-
 import uuid
+
+import redis.asyncio as aioredis
 
 from app.config import settings
 from app.services.redis_client import get_redis
 
 
-def generate_refresh_key() -> str:
-    """Generate a random refresh key (UUID)."""
-    return str(uuid.uuid4())
+class SessionManager:
+    """Хранит сессии в Redis: ключ session_id, значение user_id."""
+
+    def __init__(self, redis: aioredis.Redis, ttl_seconds: int) -> None:
+        self._redis = redis
+        self._ttl_seconds = ttl_seconds
+
+    @staticmethod
+    def generate_session_id() -> str:
+        """Generate a random session id (UUID)."""
+        return str(uuid.uuid4())
+
+    async def create(self, user_id: int) -> str:
+        """Create a new session, return session_id."""
+        session_id = self.generate_session_id()
+        await self._redis.set(session_id, str(user_id), ex=self._ttl_seconds)
+        return session_id
+
+    async def get_user_id(self, session_id: str) -> int | None:
+        """Get user_id for a session_id, or None if expired/invalid."""
+        raw = await self._redis.get(session_id)
+        if raw is None:
+            return None
+        return int(raw)
+
+    async def remove(self, session_id: str) -> None:
+        """Remove session (invalidate session_id)."""
+        await self._redis.delete(session_id)
+
+    async def exists(self, session_id: str) -> bool:
+        """Check if session_id exists in redis (active)."""
+        return bool(await self._redis.exists(session_id))
 
 
-async def create_session(user_id: int) -> str:
-    """Create a new session, return refresh key."""
-    key = generate_refresh_key()
-    ttl = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400  # seconds
+async def get_session_manager() -> SessionManager:
+    """FastAPI dependency: build SessionManager with the shared Redis client."""
     redis = await get_redis()
-    await redis.set(key, str(user_id), ex=ttl)
-    return key
-
-
-async def get_session_user_id(refresh_key: str) -> int | None:
-    """Get user_id for a refresh key, or None if expired/invalid."""
-    redis = await get_redis()
-    raw = await redis.get(refresh_key)
-    if raw is None:
-        return None
-    return int(raw)
-
-
-async def remove_session(refresh_key: str) -> None:
-    """Remove session (invalidate refresh key)."""
-    redis = await get_redis()
-    await redis.delete(refresh_key)
-
-
-async def verify_session(session_id: str) -> bool:
-    """Check if session_id exists in redis (active)."""
-    redis = await get_redis()
-    result = await redis.exists(session_id)
-    return bool(result)
+    return SessionManager(
+        redis=redis,
+        ttl_seconds=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+    )
