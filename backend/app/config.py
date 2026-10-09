@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     PRIVATE_KEY_PATH: Path = Field(default=BASE_DIR / 'keys' / 'private.pem')
     PUBLIC_KEY_PATH: Path = Field(default=BASE_DIR / 'keys' / 'public.pem')
 
+    # Redis
+    REDIS_URL: str = Field(default='redis://localhost:6379/0')
+
     # Cookie
     COOKIE_SECURE: bool = Field(default=False)
     COOKIE_SAMESITE: Literal['lax', 'strict', 'none'] = Field(default='lax')

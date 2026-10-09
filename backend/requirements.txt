@@ -18,3 +18,4 @@ starlette==0.38.5
 email-validator>=2.0.0
 Pillow==10.4.0
 slowapi==0.1.10
+redis==5.2.0

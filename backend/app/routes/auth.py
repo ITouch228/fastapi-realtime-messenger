@@ -27,6 +27,11 @@ from app.services.auth import (
     verify_token,
 )
 from app.services.limiter import limiter
+from app.services.session_manager import (
+    create_session,
+    get_session_user_id,
+    remove_session,
+)
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -139,11 +144,13 @@ async def post_login(
             access_token_expires = timedelta(
                 minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
             )
+            # session_id кладём в sub токенов, а user_id храним значением ключа в Redis
+            session_id = await create_session(authenticated_user.id)
             access_token = create_access_token(
-                data={'sub': str(authenticated_user.id)},
+                session_id=session_id,
                 expires_delta=access_token_expires,
             )
-            refresh_token = create_refresh_token({'sub': str(authenticated_user.id)})
+            refresh_token = create_refresh_token(session_id=session_id)
         except Exception as e:
             logger.error(f'Token generation failed: {str(e)}')
             raise HTTPException(status_code=500, detail='Authentication failed')
@@ -183,7 +190,13 @@ async def post_login(
 
 
 @router.post('/logout')
-async def logout():
+async def logout(access: str = Cookie(default=None, alias='access')):
+    if access:
+        # sub access-токена хранит session_id, по нему удаляем сессию в Redis
+        session_id = verify_token(access, token_type='access')
+        if session_id:
+            await remove_session(session_id)
+
     response = JSONResponse(content={'status': 'success'})
 
     response.delete_cookie(
@@ -218,16 +231,30 @@ async def refresh_token(
             status_code=status.HTTP_401_UNAUTHORIZED, detail='No refresh token provided'
         )
 
-    user_id = verify_token(refresh, token_type='refresh')
-    if not user_id:
+    # sub refresh-токена хранит session_id, user_id достаём из значения ключа в Redis
+    session_id = verify_token(refresh, token_type='refresh')
+    if not session_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid refresh token'
         )
 
+    user_id = await get_session_user_id(session_id)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Refresh token has been revoked',
+        )
+
+    # Ротация сессии: инвалидируем старую и выдаём новую
+    await remove_session(session_id)
+    new_session_id = await create_session(user_id)
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     new_access_token = create_access_token(
-        data={'sub': str(user_id)}, expires_delta=access_token_expires
+        session_id=new_session_id,
+        expires_delta=access_token_expires,
     )
+    new_refresh_token = create_refresh_token(session_id=new_session_id)
 
     response.set_cookie(
         key='access',
@@ -236,6 +263,14 @@ async def refresh_token(
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
         max_age=access_token_expires.seconds,
+    )
+    response.set_cookie(
+        key='refresh',
+        value=new_refresh_token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=int(timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS).total_seconds()),
     )
 
     return {'status': 'success'}

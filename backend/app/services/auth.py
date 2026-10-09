@@ -9,6 +9,7 @@ from app.dao.dao import ChatDAO, MessageDAO, UserDAO
 from app.database import get_session
 from app.deps import pwd_context
 from app.schemas.user import UserInDB
+from app.services.session_manager import get_session_user_id
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -56,64 +57,65 @@ async def authenticate_user(
         verify_password(password, '$2b$12$dummy_hash_for_timing_attack_prevention')
         return None
 
+    if not user.is_active:
+        verify_password(password, '$2b$12$dummy_hash_for_timing_attack_prevention')
+        return None
+
     user_in_db = UserInDB.model_validate(user)
     if not verify_password(password, user_in_db.hashed_password):
         return None
     return user_in_db
 
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.now(UTC) + expires_delta
-    else:
-        expire = datetime.now(UTC) + timedelta(
-            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-        )
-    to_encode.update({'exp': expire, 'type': 'access'})
+def create_access_token(session_id: str, expires_delta: timedelta | None = None) -> str:
+    """Создаёт access-токен, где sub хранит session_id (ключ сессии в Redis)."""
+    expire = datetime.now(UTC) + (
+        expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    )
+    to_encode = {'sub': session_id, 'exp': expire, 'type': 'access'}
     encoded_jwt = jwt.encode(
         to_encode, settings.PRIVATE_KEY, algorithm=settings.ALGORITHM
     )
     return encoded_jwt
 
 
-def create_refresh_token(data: dict) -> str:
-    to_encode = data.copy()
+def create_refresh_token(session_id: str) -> str:
+    """Создаёт refresh-токен, где sub хранит session_id (ключ сессии в Redis)."""
     expire = datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({'exp': expire, 'type': 'refresh'})
+    to_encode = {'sub': session_id, 'exp': expire, 'type': 'refresh'}
     encode_jwt = jwt.encode(
         to_encode, settings.PRIVATE_KEY, algorithm=settings.ALGORITHM
     )
     return encode_jwt
 
 
-def verify_token(token: str, token_type: str = 'access'):
+def verify_token(token: str, token_type: str = 'access') -> str | None:
+    """Декодирует JWT и возвращает session_id из sub, либо None при ошибке."""
     try:
         payload = jwt.decode(
             token, settings.PUBLIC_KEY, algorithms=[settings.ALGORITHM]
         )
-        user_id = payload.get('sub')
+        session_id = payload.get('sub')
         token_type_claim = payload.get('type')
 
-        # Проверяем тип токена, если указан
         if token_type and token_type_claim != token_type:
             logger.warning(
                 f'Token type mismatch: expected {token_type}, got {token_type_claim}'
             )
-            return False
+            return None
 
-        if user_id is None:
-            return False
-        return int(user_id)
+        if session_id is None:
+            return None
+        return str(session_id)
     except jwt.ExpiredSignatureError:
         logger.warning('Token has expired')
-        return False
+        return None
     except jwt.JWTError as e:
         logger.error(f'JWT Error: {str(e)}')
-        return False
+        return None
     except (ValueError, TypeError) as e:
         logger.error(f'Token parsing error: {str(e)}')
-        return False
+        return None
 
 
 def get_token_from_access_cookie(
@@ -131,12 +133,22 @@ async def get_current_user_from_cookie(
     if not access:
         return None
 
-    user_id = verify_token(access, token_type='access')
-    if not user_id:
+    # sub токена хранит session_id, user_id резолвим по значению ключа в Redis
+    session_id = verify_token(access, token_type='access')
+    if not session_id:
+        return None
+
+    user_id = await get_session_user_id(session_id)
+    if user_id is None:
+        logger.warning(f'Session expired or revoked: session_id={session_id}')
         return None
 
     user = await UserDAO.find_one_or_none(session=session, id=user_id)
     if user is None:
+        return None
+
+    if not user.is_active:
+        logger.warning(f'Inactive user attempted access: user_id={user_id}')
         return None
 
     return UserInDB.model_validate(user)
