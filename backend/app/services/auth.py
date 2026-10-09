@@ -47,12 +47,6 @@ async def ensure_can_access_file(
         )
 
 
-def require_user(current_user: UserInDB | None) -> UserInDB:
-    if current_user is None:
-        raise HTTPException(status_code=401, detail='Not authenticated')
-    return current_user
-
-
 async def authenticate_user(
     session: AsyncSession, username: str, password: str
 ) -> UserInDB | None:
@@ -145,3 +139,15 @@ async def get_current_user_from_cookie(
         return None
 
     return UserInDB.model_validate(user)
+
+
+async def get_current_user(
+    current_user: UserInDB | None = Depends(get_current_user_from_cookie),
+) -> UserInDB:
+    if current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Not authenticated',
+        )
+
+    return current_user

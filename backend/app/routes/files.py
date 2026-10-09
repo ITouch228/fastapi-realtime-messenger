@@ -14,8 +14,7 @@ from app.schemas.file import FileInDb
 from app.schemas.user import UserInDB
 from app.services.auth import (
     ensure_can_access_file,
-    get_current_user_from_cookie,
-    require_user,
+    get_current_user,
 )
 from app.utils.file_path import resolve_file_path
 from app.utils.logging_config import get_logger
@@ -32,10 +31,9 @@ async def download_file(
     file_id: int,
     width: float = Query(None),
     quality: int = Query(70),
-    current_user: UserInDB | None = Depends(get_current_user_from_cookie),
+    current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    current_user = require_user(current_user)
     await ensure_can_access_file(
         session=session, current_user=current_user, file_id=file_id
     )

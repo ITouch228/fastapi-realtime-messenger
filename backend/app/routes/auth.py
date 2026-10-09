@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-from email_validator import EmailNotValidError, validate_email
 from fastapi import (
     APIRouter,
     Cookie,
@@ -23,7 +22,7 @@ from app.services.auth import (
     authenticate_user,
     create_access_token,
     create_refresh_token,
-    get_current_user_from_cookie,
+    get_current_user,
     get_password_hash,
     verify_token,
 )
@@ -48,29 +47,6 @@ async def post_register(
     username = user_data.username.strip()
     email = user_data.email.strip()
     password = user_data.password
-
-    if len(username) < 3:
-        return templates.TemplateResponse(
-            'register.html',
-            {'request': request, 'message': 'Логин должен быть минимум 3 символа'},
-            status_code=400,
-        )
-
-    try:
-        validate_email(email)
-    except EmailNotValidError:
-        return templates.TemplateResponse(
-            'register.html',
-            {'request': request, 'message': 'Некорректный email'},
-            status_code=400,
-        )
-
-    if len(password) < 6:
-        return templates.TemplateResponse(
-            'register.html',
-            {'request': request, 'message': 'Пароль должен быть минимум 6 символов'},
-            status_code=400,
-        )
 
     existing_user_username = await UserDAO.find_one_or_none(
         session=session, username=user_data.username
@@ -105,16 +81,21 @@ async def post_register(
         }
 
         user = await UserDAO.add(session=session, **user_dict)
-        if user:
-            logger.info(f'Successfully registered user with ID: {user.id}')
-        else:
+        if not user:
             logger.error(
                 f'Registration failed for user with username: {user_data.username}, email: {user_data.email}'
             )
-
+            return templates.TemplateResponse(
+                'register.html',
+                {'request': request, 'message': 'Ошибка при регистрации'},
+                status_code=400,
+            )
+        logger.info(f'Successfully registered user with ID: {user.id}')
         return templates.TemplateResponse(
-            'login.html', {'request': request, 'message': 'Регистрация прошла успешно!'}
+            'login.html',
+            {'request': request, 'message': 'Регистрация прошла успешно!'},
         )
+
     except Exception as e:
         logger.error(f'Registration error: {str(e)}')
         return templates.TemplateResponse(
@@ -162,7 +143,6 @@ async def post_login(
                 data={'sub': str(authenticated_user.id)},
                 expires_delta=access_token_expires,
             )
-
             refresh_token = create_refresh_token({'sub': str(authenticated_user.id)})
         except Exception as e:
             logger.error(f'Token generation failed: {str(e)}')
@@ -225,9 +205,7 @@ async def logout():
 
 
 @router.get('/me', response_model=UserResponse)
-async def read_me(
-    current_user: UserInDB | None = Depends(get_current_user_from_cookie),
-):
+async def read_me(current_user: UserInDB = Depends(get_current_user)):
     return current_user
 
 

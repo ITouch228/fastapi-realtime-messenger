@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dao.dao import ChatDAO, MessageDAO
 from app.database import get_session
 from app.schemas.user import UserInDB
-from app.services.auth import get_current_user_from_cookie, require_user
+from app.services.auth import get_current_user
 from app.services.event_bus import bus
 from app.services.files import add_file_to_db, save_file
 from app.services.messages import build_message_out
@@ -25,11 +25,9 @@ async def send_message(
     message_text: str = Form(default=''),
     file: UploadFile = File(default=None),
     file_name: str = Form(default=''),
-    current_user: UserInDB = Depends(get_current_user_from_cookie),
+    current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    current_user = require_user(current_user)
-
     try:
         # temp-chat -> создание чата
         if chat_id.startswith('temp-'):
@@ -119,11 +117,9 @@ async def send_message(
 @router.delete('/delete_message')
 async def delete_message(
     message_id: int,
-    current_user: UserInDB = Depends(get_current_user_from_cookie),
+    current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    current_user = require_user(current_user)
-
     message = await MessageDAO.find_one_or_none(session=session, id=message_id)
     if not message:
         raise HTTPException(status_code=404, detail='Message not found')

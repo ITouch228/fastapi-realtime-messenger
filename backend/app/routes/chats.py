@@ -5,7 +5,7 @@ from app.dao.dao import ChatDAO, MessageDAO
 from app.database import get_session
 from app.schemas.chat import ChatInDb
 from app.schemas.user import UserInDB
-from app.services.auth import get_current_user_from_cookie, require_user
+from app.services.auth import get_current_user
 from app.services.messages import build_message_out
 from app.utils.logging_config import get_logger
 
@@ -17,11 +17,9 @@ router = APIRouter(prefix='/chats')
 
 @router.get('/get_user_chats')
 async def get_user_chats(
-    current_user: UserInDB | None = Depends(get_current_user_from_cookie),
+    current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    current_user = require_user(current_user)
-
     logger.info(f'Загрузка чатов пользователя с id: {current_user.id}')
     chats = await ChatDAO.find_user_chats(session=session, user_id=current_user.id)
 
@@ -56,10 +54,8 @@ async def get_user_chats(
 async def get_chat_by_user_ids(
     target_id: int,
     session: AsyncSession = Depends(get_session),
-    current_user: UserInDB = Depends(get_current_user_from_cookie),
+    current_user: UserInDB = Depends(get_current_user),
 ):
-    current_user = require_user(current_user)
-
     chat = await ChatDAO.find_chat_by_user_ids(
         session=session, user1_id=current_user.id, user2_id=target_id
     )
@@ -72,11 +68,9 @@ async def get_chat_by_user_ids(
 @router.get('/get_chat_messages')
 async def get_chat_messages(
     chat_id: str,
-    current_user: UserInDB = Depends(get_current_user_from_cookie),
+    current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    current_user = require_user(current_user)
-
     if chat_id.startswith('temp-'):
         return []
     chat_id_int = int(chat_id)
@@ -101,11 +95,9 @@ async def get_chat_messages(
 @router.delete('/delete_chat')
 async def delete_chat(
     chat_id: int,
-    current_user: UserInDB = Depends(get_current_user_from_cookie),
+    current_user: UserInDB = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    current_user = require_user(current_user)
-
     chat = await ChatDAO.find_one_or_none(session=session, id=chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail='Chat not found')

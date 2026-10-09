@@ -10,8 +10,8 @@ from starlette.responses import RedirectResponse
 from app.deps import templates
 from app.schemas.user import UserInDB
 from app.services.auth import (
+    get_current_user,
     get_current_user_from_cookie,
-    require_user,
 )
 from app.services.event_bus import bus
 
@@ -56,10 +56,9 @@ async def get_messages_page(
 
 @router.get('/sse-updates')
 async def sse_updates(
-    current_user: UserInDB | None = Depends(get_current_user_from_cookie),
+    current_user: UserInDB = Depends(get_current_user),
 ):
-    user = require_user(current_user)
-    queue = bus.subscribe(user.id)
+    queue = bus.subscribe(current_user.id)
 
     async def event_generator():
         try:
@@ -70,7 +69,7 @@ async def sse_updates(
                     yield f'data: {json.dumps(payload)}\n\n'
                 yield ': ping\n\n'
         finally:
-            bus.unsubscribe(user.id, queue)
+            bus.unsubscribe(current_user.id, queue)
 
     return StreamingResponse(
         event_generator(),
