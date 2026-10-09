@@ -52,30 +52,10 @@ async def build_message_out(message, session: AsyncSession) -> MessageOut:
     file_meta = None
 
     if message.message_file_id:
-        file_in_db = await FileDAO.find_one_or_none(
-            session=session, id=message.message_file_id
-        )
-        if not file_in_db:
-            raise HTTPException(status_code=404, detail='File not found')
-
-        file_db = FileInDb.model_validate(file_in_db)
-        file_path = resolve_file_path(file_db.file_path)
-
-        if not file_path or not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail='File not found')
-
-        abs_file_path = os.path.abspath(file_path)
-        expected_prefix = str(FILES_ROOT.resolve())
-        if not abs_file_path.startswith(expected_prefix):
-            raise HTTPException(status_code=400, detail='Invalid file path')
-
-        mime_type, _ = mimetypes.guess_type(file_path)
-        mime_type = mime_type or 'application/octet-stream'
-        if mime_type not in ALLOWED_MIME_TYPES:
-            raise HTTPException(status_code=400, detail='File type not allowed')
-
-        file_meta = build_file_meta(
-            file_id=message.message_file_id, file_path=file_path
+        file_meta = await _resolve_file_meta(
+            session=session,
+            message_file_id=message.message_file_id,
+            message_id=message.id,
         )
 
     return MessageOut(
@@ -87,3 +67,50 @@ async def build_message_out(message, session: AsyncSession) -> MessageOut:
         message_file_id=message.message_file_id,
         file=file_meta,
     )
+
+
+async def _resolve_file_meta(
+    session: AsyncSession,
+    message_file_id: int,
+    message_id: int,
+) -> FileMeta | None:
+    """Resolve file metadata; return None on any failure without breaking the message."""
+    try:
+        file_in_db = await FileDAO.find_one_or_none(session=session, id=message_file_id)
+        if not file_in_db:
+            logger.warning(
+                f'File {message_file_id} not found in DB for message {message_id}'
+            )
+            return None
+
+        file_db = FileInDb.model_validate(file_in_db)
+        file_path = resolve_file_path(file_db.file_path)
+
+        if not file_path or not os.path.exists(file_path):
+            logger.warning(
+                f'File {message_file_id} missing on disk for message {message_id}'
+            )
+            return None
+
+        abs_file_path = os.path.abspath(file_path)
+        expected_prefix = str(FILES_ROOT.resolve())
+        if not abs_file_path.startswith(expected_prefix):
+            logger.warning(
+                f'File {message_file_id} path traversal detected for message {message_id}'
+            )
+            return None
+
+        mime_type, _ = mimetypes.guess_type(file_path)
+        mime_type = mime_type or 'application/octet-stream'
+        if mime_type not in ALLOWED_MIME_TYPES:
+            logger.warning(
+                f'File {message_file_id} has disallowed MIME type {mime_type} '
+                f'for message {message_id}'
+            )
+            return None
+
+        return build_file_meta(file_id=message_file_id, file_path=file_path)
+
+    except HTTPException:
+        logger.warning(f'File {message_file_id} access error for message {message_id}')
+        return None
