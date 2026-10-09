@@ -5,7 +5,7 @@ from typing import Literal
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import FILES_ROOT
+from app.config import FILES_ROOT
 from app.dao.dao import FileDAO
 from app.schemas.file import FileInDb, FileMeta
 from app.schemas.message import MessageOut

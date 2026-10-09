@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import FILES_ROOT
+from app.config import FILES_ROOT
 from app.dao.dao import FileDAO
 from app.database import get_session
 from app.schemas.file import FileInDb

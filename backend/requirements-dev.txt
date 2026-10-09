@@ -1,5 +1,4 @@
 -r requirements.txt
 
-# Ruff (lint + format) + mypy (types)
 ruff==0.7.3
 mypy==1.13.0

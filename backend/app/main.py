@@ -10,7 +10,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.core.config import STATIC_DIR
+from app.config import STATIC_DIR
 from app.routes import auth, chats, files, messages, pages, users, ws
 from app.services.limiter import limiter
 from app.utils.logging_config import get_logger, setup_logging

@@ -5,24 +5,28 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+STATIC_DIR = BASE_DIR / 'app' / 'static'
+TEMPLATES_DIR = BASE_DIR / 'app' / 'templates'
+FILES_ROOT = STATIC_DIR / 'files'
+LOGS_DIR = BASE_DIR / 'logs'
 
 
 class Settings(BaseSettings):
-    DB_USER: str = 'postgres'
+    # Postgres
+    DB_USER: str = Field(default='postgres')
     DB_PASSWORD: str = Field(default='')
-    DB_HOST: str = 'localhost'
-    DB_PORT: int = 5432
-    DB_NAME: str = 'itmessage'
+    DB_HOST: str = Field(default='localhost')
+    DB_PORT: int = Field(default=5432)
+    DB_NAME: str = Field(default='messanger_db')
 
-    # JWT settings
+    # JWT
     ALGORITHM: str = 'RS256'
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 1
-
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=120)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7)
     PRIVATE_KEY_PATH: Path = Field(default=BASE_DIR / 'keys' / 'private.pem')
     PUBLIC_KEY_PATH: Path = Field(default=BASE_DIR / 'keys' / 'public.pem')
 
-    # Cookie settings
+    # Cookie
     COOKIE_SECURE: bool = Field(default=False)
     COOKIE_SAMESITE: Literal['lax', 'strict', 'none'] = Field(default='lax')
 

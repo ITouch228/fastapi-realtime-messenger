@@ -2,10 +2,12 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from app.core.config import FILES_ROOT
+from app.config import FILES_ROOT
 
 
 def resolve_file_path(db_path: str) -> Path:
+    """Возвращает путь к файлу на диске по относительному пути"""
+
     if not db_path:
         raise HTTPException(status_code=404, detail='Empty file path')
 
