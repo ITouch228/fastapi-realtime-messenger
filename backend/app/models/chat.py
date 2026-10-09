@@ -1,16 +1,13 @@
-from sqlalchemy import ARRAY, Column, Integer
+from sqlalchemy import ARRAY, Index, Integer
+from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base
+from app.models.base import Base
 
 
 class Chat(Base):
     __tablename__ = 'chats'
 
-    id = Column(Integer, primary_key=True, index=True)
-    users: list[int] = Column(ARRAY(Integer))  # type: ignore[assignment]
+    users: Mapped[list[int]] = mapped_column(ARRAY(Integer))
 
-    def dict(self):
-        return {
-            'id': self.id,
-            'users': self.users,
-        }
+    # GIN-индекс для эффективных contains()/ANY-запросов по массиву users
+    __table_args__ = (Index('ix_chats_users_gin', 'users', postgresql_using='gin'),)

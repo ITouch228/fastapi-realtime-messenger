@@ -1,6 +1,7 @@
+from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import delete, desc, or_, select, update
+from sqlalchemy import delete, desc, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,33 +34,33 @@ class ChatDAO(BaseDAO):
     model = Chat
 
     @classmethod
-    async def find_user_chats(
+    async def get_all_user_chats(
         cls, session: AsyncSession, user_id: int
-    ) -> list[Chat] | None:
-        try:
-            query = select(cls.model).where(cls.model.users.any(user_id))  # type: ignore[attr-defined]
-            result = await session.execute(query)
-            return list(result.scalars().all())
-        except SQLAlchemyError as e:
-            await session.rollback()
-            raise e
+    ) -> Sequence[Chat] | None:
+        query = (
+            select(Chat)
+            .where(Chat.users.contains([user_id]))
+            .order_by(Chat.id.desc())
+            .limit(100)
+        )
+        result = await session.execute(query)
+        return result.scalars().all()
 
     @classmethod
-    async def find_chat_by_user_ids(
-        cls, session: AsyncSession, user1_id: int, user2_id: int
-    ) -> Any | None:
-        try:
-            query = select(cls.model).filter(
-                or_(
-                    cls.model.users == [user1_id, user2_id],  # type: ignore[arg-type]
-                    cls.model.users == [user2_id, user1_id],  # type: ignore[arg-type]
-                )
+    async def search_chats(
+        cls, session: AsyncSession, current_user_id: int, user_id: int
+    ) -> Sequence[Chat] | None:
+        query = (
+            select(Chat)
+            .where(
+                Chat.users.contains([current_user_id]),
+                Chat.users.contains([user_id]),
             )
-            result = await session.execute(query)
-            return result.scalar_one_or_none()
-        except SQLAlchemyError as e:
-            await session.rollback()
-            raise e
+            .order_by(Chat.id.desc())
+            .limit(100)
+        )
+        result = await session.execute(query)
+        return result.scalars().all()
 
     @classmethod
     async def delete_chat(cls, session: AsyncSession, chat_id: int):

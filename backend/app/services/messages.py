@@ -61,7 +61,7 @@ async def build_message_out(message, session: AsyncSession) -> MessageOut:
     return MessageOut(
         id=message.id,
         chat_id=message.chat_id,
-        user_from_id=message.user_from_id,
+        sender_id=message.sender_id,
         message_text=message.message_text,
         time=message.time,
         message_file_id=message.message_file_id,

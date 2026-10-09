@@ -26,7 +26,7 @@ async def get_user_info(
     return {
         'id': user.id,
         'username': user.username,
-        'avatar': user.username[0].upper(),  # Первая буква имени как аватар
+        'avatar': user.username[0].upper(),
     }
 
 

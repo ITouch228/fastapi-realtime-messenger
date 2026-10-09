@@ -40,10 +40,10 @@ async def send_message(
             )
             chat_id = chat.id
             logger.info(
-                f'Notify user {target_id} with message: new_chat - {chat.dict()}'
+                f'Notify user {target_id} with message: new_chat - {chat.to_dict()}'
             )
             await manager.send_personal_message(
-                {'type': 'new_chat', 'message': chat.dict()}, target_id
+                {'type': 'new_chat', 'message': chat.to_dict()}, target_id
             )
             await bus.publish(target_id, {'type': 'new_chat', 'chat_id': chat_id})
         else:
@@ -78,10 +78,10 @@ async def send_message(
         message = await MessageDAO.add(
             session=session,
             chat_id=chat_id,
-            user_from_id=current_user.id,
+            sender_id=current_user.id,
             message_text=message_text,
             message_file_id=file_id,
-            time=datetime.now(UTC).strftime('%Y %m %d %H %M %S'),
+            time=datetime.now(UTC),
         )
 
         message_out = await build_message_out(session=session, message=message)
@@ -123,7 +123,7 @@ async def delete_message(
         raise HTTPException(status_code=404, detail='Message not found')
 
     # Удалять может только автор сообщения
-    if message.user_from_id != current_user.id:
+    if message.sender_id != current_user.id:
         raise HTTPException(status_code=403, detail='Forbidden')
 
     # Дополнительная проверка: пользователь состоит в чате сообщения

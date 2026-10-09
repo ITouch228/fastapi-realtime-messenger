@@ -34,7 +34,7 @@ async def get_user_chat_in_db(chat_id: int, session: AsyncSession):
 
 async def get_user_chats_in_db(user_id: int, session: AsyncSession):
     logger.info(f'get_user_chats_in_db: {user_id}')
-    chats = await ChatDAO.find_user_chats(session=session, user_id=user_id)
+    chats = await ChatDAO.get_all_user_chats(session=session, user_id=user_id)
 
     result = []
     if chats is not None:
@@ -67,11 +67,11 @@ async def get_chat_by_user_ids_in_db(
     user_id: int, target_id: int, session: AsyncSession
 ):
     logger.info(f'get_chat_by_user_ids_in_db: {user_id}, {target_id}')
-    chat = await ChatDAO.find_chat_by_user_ids(
-        session=session, user1_id=user_id, user2_id=target_id
+    chats = await ChatDAO.search_chats(
+        session=session, current_user_id=user_id, user_id=target_id
     )
 
-    return chat
+    return chats[0] if chats else None
 
 
 async def delete_chat_in_db(chat_id: int, session: AsyncSession):

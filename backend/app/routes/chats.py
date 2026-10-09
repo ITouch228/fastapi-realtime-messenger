@@ -21,7 +21,7 @@ async def get_user_chats(
     session: AsyncSession = Depends(get_session),
 ):
     logger.info(f'Загрузка чатов пользователя с id: {current_user.id}')
-    chats = await ChatDAO.find_user_chats(session=session, user_id=current_user.id)
+    chats = await ChatDAO.get_all_user_chats(session=session, user_id=current_user.id)
 
     result = []
     if chats is not None:
@@ -56,12 +56,12 @@ async def get_chat_by_user_ids(
     session: AsyncSession = Depends(get_session),
     current_user: UserInDB = Depends(get_current_user),
 ):
-    chat = await ChatDAO.find_chat_by_user_ids(
-        session=session, user1_id=current_user.id, user2_id=target_id
+    chats = await ChatDAO.search_chats(
+        session=session, current_user_id=current_user.id, user_id=target_id
     )
 
-    if chat:
-        return ChatInDb.model_validate(chat).id
+    if chats:
+        return ChatInDb.model_validate(chats[0]).id
     return None
 
 

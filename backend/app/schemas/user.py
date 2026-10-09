@@ -23,6 +23,7 @@ class UserInDB(UserBase):
     id: int
     username: str = Field(...)
     hashed_password: str = Field(...)
+    is_active: bool = Field(default=True)
 
     class Config:
         from_attributes = True
