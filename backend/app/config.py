@@ -1,29 +1,39 @@
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+STATIC_DIR = BASE_DIR / 'app' / 'static'
+TEMPLATES_DIR = BASE_DIR / 'app' / 'templates'
+FILES_ROOT = STATIC_DIR / 'files'
+LOGS_DIR = BASE_DIR / 'logs'
 
 
 class Settings(BaseSettings):
-    DB_USER: str = 'postgres'
+    # Postgres
+    DB_USER: str = Field(default='postgres')
     DB_PASSWORD: str = Field(default='')
-    DB_HOST: str = 'localhost'
-    DB_PORT: int = 5432
-    DB_NAME: str = 'itmessage'
+    DB_HOST: str = Field(default='localhost')
+    DB_PORT: int = Field(default=5432)
+    DB_NAME: str = Field(default='messenger_db')
 
-    # JWT settings
+    # JWT
     ALGORITHM: str = 'RS256'
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 1
-
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=120)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7)
     PRIVATE_KEY_PATH: Path = Field(default=BASE_DIR / 'keys' / 'private.pem')
     PUBLIC_KEY_PATH: Path = Field(default=BASE_DIR / 'keys' / 'public.pem')
 
-    # Cookie settings
-    COOKIE_SECURE: bool = Field(default=False)
-    COOKIE_SAMESITE: str = Field(default='lax')
+    # Redis
+    REDIS_URL: str = Field(default='redis://localhost:6379/0')
+
+    # Cookie
+    # Безопасный дефолт: куки только по HTTPS. Для локальной разработки
+    # по http задайте COOKIE_SECURE=false в .env.
+    COOKIE_SECURE: bool = Field(default=True)
+    COOKIE_SAMESITE: Literal['lax', 'strict', 'none'] = Field(default='lax')
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / 'app' / '.env', env_file_encoding='utf-8', extra='ignore'

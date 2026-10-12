@@ -1,56 +1,54 @@
 import io
-import logging
 import mimetypes
-import os
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import FileResponse
-from starlette.templating import Jinja2Templates
 
 from app.dao.dao import FileDAO
 from app.database import get_session
 from app.schemas.file import FileInDb
-from app.schemas.user import UserInDB
+from app.schemas.user import UserResponse
 from app.services.auth import (
-    ensure_can_access_file,
-    get_current_user_from_cookie,
-    require_user,
+    get_current_user,
 )
-from app.utils.file_path import resolve_file_path
+from app.services.files import ensure_can_access_file
+from app.utils.files import resolve_file_path
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
-templates: Jinja2Templates = Jinja2Templates(directory='app/templates')
 
 
 router = APIRouter(prefix='/files')
 
 
-@router.get('/download_file/{file_id}')
+@router.get('/{file_id}')
 async def download_file(
     request: Request,
     file_id: int,
     width: float = Query(None),
     quality: int = Query(70),
-    current_user: UserInDB | None = Depends(get_current_user_from_cookie),
+    current_user: UserResponse = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    current_user = require_user(current_user)
     await ensure_can_access_file(
         session=session, current_user=current_user, file_id=file_id
     )
 
-    file = await FileDAO.find_one_or_none(session, id=file_id)
+    file = await FileDAO.find_one_or_none(session=session, id=file_id)
     if not file:
-        raise HTTPException(status_code=404, detail='File not found')
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail='Файл не найден'
+        )
 
     db_path = FileInDb.model_validate(file).file_path
     file_path = resolve_file_path(db_path)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail='File not found')
+    if not file_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail='Файл не найден'
+        )
 
     # Определяем тип устройства по User-Agent
     user_agent = request.headers.get('User-Agent', '').lower()
@@ -87,17 +85,17 @@ async def download_file(
                     output.getvalue(),
                     media_type=f'image/{output_format.lower()}',
                     headers={
-                        'Cache-Control': 'public, max-age=31536000',
+                        'Cache-Control': 'private, max-age=31536000',
                         'Content-DPR': '1.0',
                         'Vary': 'Accept',
                     },
                 )
-        except Exception as e:
-            logging.error(f'Image processing error: {str(e)}')
+        except Exception:
+            logger.exception('Ошибка при загрузке изображения')
             return FileResponse(file_path, media_type=mime_type)
 
     return FileResponse(
         file_path,
         media_type=mime_type,
-        headers={'Cache-Control': 'public, max-age=31536000'},
+        headers={'Cache-Control': 'private, max-age=31536000'},
     )

@@ -12,23 +12,20 @@ const messagesContainer = document.getElementById('messages');
 
 export const getUserInfo = async userId => {
   try {
-    const response = await api.get('/users/get_user_info', {
-      params: { user_id: userId },
-    });
-    const userInfo = response.data;
-    return userInfo;
+    const response = await api.get(`/users/${userId}`)
+    const userInfo = response.data
+    return userInfo
   } catch (error) {
-    console.error('Ошибка загрузки информации о пользователе:', error);
+    console.error('Ошибка загрузки информации о пользователе:', error)
     return {
       username: `Пользователь ${userId}`,
-      avatar: '?',
     };
   }
 };
 
 export const loadChats = async () => {
   try {
-    const response = await api.get('/chats/get_user_chats');
+    const response = await api.get('/chats');
     const chats = response.data;
     AppState.setPersistentChats(chats);
   } catch (error) {
@@ -46,9 +43,9 @@ export const renderChats = async chats => {
         const userInfo = await getUserInfo(targetUserId);
 
         // Форматируем время последнего сообщения
-        let lastMessageTime = '';
-        if (chat.lastMessageTime) {
-          lastMessageTime = formatTimeLocalFromUtcString(chat.lastMessageTime);
+        let lastMessageSentAt = '';
+        if (chat.lastMessageSentAt) {
+          lastMessageSentAt = formatTimeLocalFromUtcString(chat.lastMessageSentAt);
         }
 
         // Создаем элемент чата
@@ -59,7 +56,7 @@ export const renderChats = async chats => {
 
         const avatarDiv = document.createElement('div');
         avatarDiv.className = 'chat-avatar';
-        avatarDiv.textContent = userInfo.avatar || '?';
+        avatarDiv.textContent = userInfo.username.charAt(0) || '?';
 
         const chatNameDiv = document.createElement('div');
         chatNameDiv.className = 'chat-name';
@@ -68,14 +65,13 @@ export const renderChats = async chats => {
         const lastMessageDiv = document.createElement('div');
         lastMessageDiv.className = 'chat-last-message';
 
-        const lastMessageText =
-          chat.lastMessage || (chat.lastMessageTime ? 'Файл' : 'Нет сообщений');
+        const lastMessageText = chat.lastMessage || 'Нет сообщений';
         lastMessageDiv.textContent = lastMessageText;
 
-        if (lastMessageTime) {
+        if (lastMessageSentAt) {
           const timeSpan = document.createElement('span');
           timeSpan.style.float = 'right';
-          timeSpan.textContent = lastMessageTime;
+          timeSpan.textContent = lastMessageSentAt;
           lastMessageDiv.appendChild(timeSpan);
         }
 
@@ -155,11 +151,7 @@ export const renderChats = async chats => {
 
 export const loadChatMessages = async chatId => {
   try {
-    const response = await api.get('/chats/get_chat_messages', {
-      params: {
-        chat_id: chatId,
-      },
-    });
+    const response = await api.get(`/messages/${chatId}`);
 
     if (!response || !response.data) {
       console.error('Некорректный ответ от сервера', response);
@@ -168,8 +160,8 @@ export const loadChatMessages = async chatId => {
 
     const messages = response.data;
     messages.sort((a, b) => {
-      if (a.time > b.time) return 1;
-      else if (a.time === b.time) return 0;
+      if (a.sent_at > b.sent_at) return 1;
+      else if (a.sent_at === b.sent_at) return 0;
       else return -1;
     });
     AppState.setMessages(messages);
@@ -187,13 +179,13 @@ export const renderMessages = async messages => {
     const imgContainers = [];
 
     for (const message of messages) {
-      const isOutgoing = message.user_from_id === AppState.userId;
+      const isOutgoing = message.sender_id === AppState.userId;
       const new_message = document.createElement('div');
       new_message.className = `message ${isOutgoing ? 'outgoing' : 'incoming'}`;
       new_message.dataset.messageId = message.id;
 
       // Кнопка удаления
-      if (message.message_text !== 'Удалено') {
+      if (!message.is_deleted && message.sender_id === AppState.userId) {
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'delete-btn';
         deleteBtn.innerHTML = '×';
@@ -206,10 +198,10 @@ export const renderMessages = async messages => {
       contentWrapper.style.position = 'relative';
 
       // Файл
-      if (message.message_file_id !== null) {
+      if (message.message_file_id !== null && message.file) {
         const fileDiv = document.createElement('div');
         fileDiv.className =
-          message.user_from_id === AppState.userId
+          message.sender_id === AppState.userId
             ? 'image message outgoing'
             : 'image message incoming';
 
@@ -282,7 +274,7 @@ export const renderMessages = async messages => {
       const contentDiv = document.createElement('div');
       contentDiv.className = 'message-content';
 
-      if (message.message_text === 'Удалено') {
+      if (message.is_deleted) {
         contentDiv.innerHTML = '<em>Удалено</em>';
       } else {
         contentDiv.textContent = message.message_text;
@@ -292,7 +284,7 @@ export const renderMessages = async messages => {
       // Время
       const timeSpan = document.createElement('span');
       timeSpan.className = 'message-time';
-      timeSpan.textContent = formatTimeLocalFromUtcString(message.time);
+      timeSpan.textContent = formatTimeLocalFromUtcString(message.sent_at);
 
       contentWrapper.appendChild(timeSpan);
 
@@ -307,9 +299,7 @@ export const renderMessages = async messages => {
 
 export const startNewChat = async targetId => {
   console.log(targetId);
-  const response = await api.get('/chats/get_chat_by_user_ids', {
-    params: { target_id: targetId },
-  });
+  const response = await api.get(`/chats/direct/${targetId}`);
   const chatId = response.data;
   if (chatId) {
     const existingChat = document.getElementById(chatId);
@@ -332,29 +322,19 @@ export const deleteChat = async chatId => {
   }
 
   try {
-    const response = await api.delete('/chats/delete_chat', {
-      params: { chat_id: chatId },
-    });
+    await api.delete(`/chats/${chatId}`);
 
-    if (!response || !response.data) {
-      console.error('Некорректный ответ от сервера', response);
-      return;
-    }
-    if (response.data) {
-      // Удаляем чат из списка
-      AppState.setPersistentChats(
-        AppState.persistentChats.filter(chat => {
-          return chat.id !== chatId;
-        }),
-      );
+    // Удаляем чат из списка
+    AppState.setPersistentChats(
+      AppState.persistentChats.filter(chat => {
+        return chat.id !== chatId;
+      }),
+    );
 
-      // Если удаляемый чат был активным, очищаем область сообщений
-      if (AppState.chatActiveId === chatId) {
-        messagesContainer.innerHTML = '';
-        AppState.setChatActiveId(0);
-      }
-    } else {
-      throw new Error('Ошибка при удалении чата');
+    // Если удаляемый чат был активным, очищаем область сообщений
+    if (AppState.chatActiveId === chatId) {
+      messagesContainer.innerHTML = '';
+      AppState.setChatActiveId(0);
     }
   } catch (error) {
     console.error('Ошибка удаления чата:', error);
@@ -384,27 +364,19 @@ export const getFileIcon = extension => {
   return icons[extension] || icons.default;
 };
 
-// Удаление сообщений
 export const deleteMessage = async (messageId, element) => {
   if (!element || !messageId) return;
 
   if (!confirm('Удалить сообщение?')) return;
 
-  const response = await api.delete('/messages/delete_message', {
-    params: { message_id: messageId },
-  });
-
-  if (!response || !response.data) {
-    console.error('Некорректный ответ от сервера', response);
-    return;
-  }
-
-  if (response.data.status === 'ok') {
+  try {
+    await api.delete(`/messages/${messageId}`);
     element.querySelector('.message-content').innerHTML = '<em>Удалено</em>';
     element.querySelector('.delete-btn').remove();
-    element.querySelector('.image').remove();
-  } else {
-    console.error('Ошибка удаления сообщения');
+    const imageEl = element.querySelector('.image');
+    if (imageEl) imageEl.remove();
+  } catch (error) {
+    console.error('Ошибка удаления сообщения:', error);
   }
 };
 

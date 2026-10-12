@@ -1,123 +1,70 @@
-import mimetypes
-import os
+from typing import Literal
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dao.dao import FileDAO, MessageDAO
+from app.dao.dao import FileDAO
 from app.schemas.file import FileInDb, FileMeta
-from app.schemas.message import MessageInDb as FullMessageSchema
-from app.schemas.message import MessageOut
-from app.utils.file_path import resolve_file_path
+from app.schemas.message import MessageResponse
 from app.utils.logging_config import get_logger
-
-ALLOWED_MIME_TYPES = {
-    'image/jpeg',
-    'image/png',
-    'image/gif',
-    'image/webp',
-    'text/plain',
-    'text/csv',
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-}
-
 
 logger = get_logger(__name__)
 
 
-def build_file_meta(file_id: int, file_path: str) -> FileMeta:
-    mime_type, _ = mimetypes.guess_type(file_path)
-    mime_type = mime_type or 'application/octet-stream'
-    kind = 'image' if mime_type.startswith('image/') else 'file'
-
-    return FileMeta(
-        id=file_id,
-        kind=kind,
-        url=f'/api/files/download_file/{file_id}',
-        mime_type=mime_type,
-        filename=os.path.basename(file_path),
-        size=os.path.getsize(file_path) if os.path.exists(file_path) else None,
-    )
-
-
-async def build_message_out(message, session: AsyncSession) -> MessageOut:
+async def build_message_out(message, session: AsyncSession) -> MessageResponse:
+    """Возвращает сообщение в формате для ответа."""
     file_meta = None
 
     if message.message_file_id:
-        file_in_db = await FileDAO.find_one_or_none(
-            session=session, id=message.message_file_id
-        )
-        if not file_in_db:
-            raise HTTPException(status_code=404, detail='File not found')
-
-        file_db = FileInDb.model_validate(file_in_db)
-        file_path = resolve_file_path(file_db.file_path)
-
-        if not file_path or not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail='File not found')
-
-        abs_file_path = os.path.abspath(file_path)
-        expected_prefix = os.path.abspath('app/static/files/')
-        if not abs_file_path.startswith(expected_prefix):
-            raise HTTPException(status_code=400, detail='Invalid file path')
-
-        mime_type, _ = mimetypes.guess_type(file_path)
-        mime_type = mime_type or 'application/octet-stream'
-        if mime_type not in ALLOWED_MIME_TYPES:
-            raise HTTPException(status_code=400, detail='File type not allowed')
-
-        file_meta = build_file_meta(
-            file_id=message.message_file_id, file_path=file_path
+        file_meta = await _resolve_file_meta(
+            session=session,
+            message_file_id=message.message_file_id,
+            message_id=message.id,
         )
 
-    return MessageOut(
+    return MessageResponse(
         id=message.id,
         chat_id=message.chat_id,
-        user_from_id=message.user_from_id,
+        sender_id=message.sender_id,
         message_text=message.message_text,
-        time=message.time,
+        sent_at=message.sent_at,
         message_file_id=message.message_file_id,
         file=file_meta,
+        is_deleted=message.is_deleted,
     )
 
 
-async def get_messages_by_chat_id_in_db(chat_id: int, session: AsyncSession):
-    logger.info(f'get_messages_by_chat_id_in_db: {chat_id}')
-    messages = await MessageDAO.find_all_or_none(session=session, chat_id=chat_id)
-
-    return messages
-
-
-async def add_message_to_db(
-    chat_id: int,
-    user_from_id: int,
-    message_text: str,
-    message_file_id: int | None,
-    time: str,
+async def _resolve_file_meta(
     session: AsyncSession,
-):
-    logger.info(f'add_message_to_db: chat_id = {chat_id}')
-    message = await MessageDAO.add(
-        session=session,
-        chat_id=chat_id,
-        user_from_id=user_from_id,
-        message_text=message_text,
-        message_file_id=message_file_id,
-        time=time,
-    )
+    message_file_id: int,
+    message_id: int,
+) -> FileMeta | None:
+    """Достаёт файл из БД и собирает метаданные."""
+    try:
+        file_in_db = await FileDAO.find_one_or_none(session=session, id=message_file_id)
+        if not file_in_db:
+            logger.warning(
+                'Файл %s не найден в БД для сообщения %s', message_file_id, message_id
+            )
+            return None
 
-    message_id = FullMessageSchema.model_validate(message).id
+        file_db = FileInDb.model_validate(file_in_db)
+        mime_type = file_db.mime_type
+        kind: Literal['image', 'file'] = (
+            'image' if mime_type.startswith('image/') else 'file'
+        )
 
-    return message_id
+        return FileMeta(
+            id=file_db.id,
+            kind=kind,
+            url=f'/api/files/{file_db.id}',
+            mime_type=mime_type,
+            filename=file_db.original_name,
+            size=file_db.size_bytes,
+        )
 
-
-async def delete_message_in_db(message_id: int, session: AsyncSession):
-    logger.info(f'delete_message_in_db: {message_id}')
-
-    delete = await MessageDAO.delete_message(message_id=message_id, session=session)
-
-    return delete
+    except HTTPException:
+        logger.warning(
+            'Ошибка доступа к файлу %s для сообщения %s', message_file_id, message_id
+        )
+        return None

@@ -10,8 +10,8 @@
     <div class="container">
       <div class="form-container register-container">
         <h2>Регистрация</h2>
-        <h4>{{ message }}</h4>
-        <form id="registerForm" action="/api/auth/register" method="post">
+        <h4 id="message"></h4>
+        <form id="registerForm">
           <div class="form-group">
             <label for="register-username">Логин</label>
             <input
@@ -41,5 +41,7 @@
         </form>
       </div>
     </div>
+
+    <script type="module" src="/static/js/register.js"></script>
   </body>
 </html>

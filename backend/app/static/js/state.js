@@ -80,7 +80,7 @@ const AppState = {
       id: `temp-${targetUser}`,
       users: [this.userId, targetUser],
       lastMessage: null,
-      lastMessageTime: null,
+      lastMessageSentAt: null,
     };
 
     this.tempChat = tempChat;

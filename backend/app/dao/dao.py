@@ -1,7 +1,7 @@
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, Literal
 
-from sqlalchemy import delete, desc, or_, select, update
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dao.base import BaseDAO
@@ -11,117 +11,126 @@ from app.models.message import Message
 from app.models.user import User
 
 
-class UserDAO(BaseDAO):
+class UserDAO(BaseDAO[User]):
     model = User
 
     @classmethod
-    async def seach_users_by_query(
-        cls, session: AsyncSession, query: str
-    ) -> Any | None:
-        try:
-            # Security: Use SQLAlchemy's parameterized queries to prevent SQL injection
-            search_pattern = f'%{query}%'
-            stmt = select(cls.model).filter(cls.model.username.ilike(search_pattern))
-            result = await session.execute(stmt)
-            return result.scalars().all()
-        except SQLAlchemyError as e:
-            await session.rollback()
-            raise e
+    async def search_by_username(
+        cls, session: AsyncSession, query: str, limit: int = 20
+    ) -> Sequence[User]:
+        pattern = f'%{query}%'
+        stmt = (
+            select(cls.model)
+            .where(cls.model.username.ilike(pattern))
+            .order_by(cls.model.username)
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        return result.scalars().all()
+
+    @classmethod
+    async def find_by_username_or_email(
+        cls, session: AsyncSession, login: str
+    ) -> User | None:
+        stmt = select(cls.model).where(
+            or_(cls.model.username == login, cls.model.email == login.lower())
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
 
-class ChatDAO(BaseDAO):
+class ChatDAO(BaseDAO[Chat]):
     model = Chat
 
     @classmethod
-    async def find_user_chats(
-        cls, session: AsyncSession, user_id: int
-    ) -> list[Chat] | None:
-        try:
-            query = select(cls.model).where(cls.model.users.any(user_id))  # type: ignore[attr-defined]
-            result = await session.execute(query)
-            return list(result.scalars().all())
-        except SQLAlchemyError as e:
-            await session.rollback()
-            raise e
+    async def find_by_ids_with_user(
+        cls, session: AsyncSession, chat_ids: list[int], user_id: int
+    ) -> list[Chat]:
+        stmt = select(Chat).where(
+            Chat.id.in_(chat_ids),
+            Chat.users.contains([user_id]),
+        )
+        return list((await session.execute(stmt)).scalars().all())
 
     @classmethod
-    async def find_chat_by_user_ids(
-        cls, session: AsyncSession, user1_id: int, user2_id: int
-    ) -> Any | None:
-        try:
-            query = select(cls.model).filter(
-                or_(
-                    cls.model.users == [user1_id, user2_id],  # type: ignore[arg-type]
-                    cls.model.users == [user2_id, user1_id],  # type: ignore[arg-type]
-                )
+    async def get_user_chats(
+        cls, session: AsyncSession, user_id: int, limit: int = 100
+    ) -> Sequence[Chat]:
+        stmt = (
+            select(cls.model)
+            .where(Chat.users.contains([user_id]))
+            .order_by(Chat.updated_at.desc())
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        return result.scalars().all()
+
+    @classmethod
+    async def find_between_users(
+        cls, session: AsyncSession, user_a_id: int, user_b_id: int
+    ) -> Chat | None:
+        stmt = (
+            select(cls.model)
+            .where(
+                Chat.users.contains([user_a_id, user_b_id]),
+                func.cardinality(Chat.users) == 2,
             )
-            result = await session.execute(query)
-            return result.scalar_one_or_none()
-        except SQLAlchemyError as e:
-            await session.rollback()
-            raise e
+            .order_by(Chat.updated_at.desc())
+            .limit(1)
+        )
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     @classmethod
-    async def delete_chat(cls, session: AsyncSession, chat_id: int):
-        try:
-            query = delete(cls.model).filter_by(id=chat_id)
-            await session.execute(query)
-            await session.commit()
-            return True
-        except SQLAlchemyError as e:
-            await session.rollback()
-            raise e
+    async def delete_chat(cls, session: AsyncSession, chat_id: int) -> int:
+        stmt = delete(cls.model).where(cls.model.id == chat_id)
+        result = await session.execute(stmt)
+        return result.rowcount
 
 
-class MessageDAO(BaseDAO):
+class MessageDAO(BaseDAO[Message]):
     model = Message
 
     @classmethod
-    async def find_all_or_none(
-        cls,
-        session: AsyncSession,
-        order_by: str | None = None,
-        limit: int | None = None,
-        **filter_by,
-    ) -> list | None:
-        query = select(cls.model).filter_by(**filter_by)
-
-        if order_by:
-            # Security: Validate the order_by parameter to prevent SQL injection
-            allowed_fields = [column.name for column in cls.model.__table__.columns]
-            if ' desc' in order_by:
-                field_name = order_by[:-5].strip()
-                if field_name in allowed_fields:
-                    query = query.order_by(desc(getattr(cls.model, field_name)))
-            else:
-                field_name = order_by.strip()
-                if field_name in allowed_fields:
-                    query = query.order_by(getattr(cls.model, field_name))
-
-        if limit:
-            # Security: Validate limit parameter
-            if limit < 0 or limit > 100:  # Set reasonable upper limit
-                limit = 1000
-            query = query.limit(limit)
-
-        result = await session.execute(query)
-        return list(result.scalars().all())
+    async def list_chat_ids_by_file(
+        cls, session: AsyncSession, file_id: int
+    ) -> list[int]:
+        stmt = (
+            select(Message.chat_id).where(Message.message_file_id == file_id).distinct()
+        )
+        return list((await session.execute(stmt)).scalars().all())
 
     @classmethod
-    async def delete_message(cls, session: AsyncSession, message_id: int) -> bool:
-        try:
-            query = (
-                update(cls.model)
-                .where(cls.model.id == message_id)
-                .values(message_text='Удалено', message_file_id=None)
-            )
-            await session.execute(query)
-            await session.commit()
-            return True
-        except SQLAlchemyError as e:
-            await session.rollback()
-            raise e
+    async def list_messages(
+        cls,
+        session: AsyncSession,
+        order_by: Literal['id', 'created_at', 'updated_at', 'sent_at'] = 'id',
+        descending: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+        **filter_by: Any,
+    ) -> Sequence[Message]:
+        field = getattr(cls.model, order_by)
+        stmt = (
+            select(cls.model)
+            .filter_by(**filter_by)
+            .order_by(field.desc() if descending else field.asc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await session.execute(stmt)
+        return result.scalars().all()
+
+    @classmethod
+    async def soft_delete_message(cls, session: AsyncSession, message_id: int) -> int:
+        stmt = (
+            update(cls.model)
+            .where(cls.model.id == message_id)
+            .values(message_text=None, message_file_id=None, is_deleted=True)
+        )
+        result = await session.execute(stmt)
+        return result.rowcount
 
 
-class FileDAO(BaseDAO):
+class FileDAO(BaseDAO[File]):
     model = File

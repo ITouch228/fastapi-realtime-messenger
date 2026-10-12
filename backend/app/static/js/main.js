@@ -48,7 +48,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.querySelector('.logout-btn').addEventListener('click', logout);
 
   // Загружаем чаты
-  loadChats(userId);
+  loadChats();
 
   // Подключаем вебсокет
   connectWebSocket(userId, handleWebSocketMessage);
@@ -59,13 +59,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderChats(AppState.persistentChats);
   });
 
-  AppState.subscribe('chatActiveId', chatActiveId => {
+  AppState.subscribe('chatActiveId', async chatActiveId => {
     if (chatActiveId !== 0) {
-      loadChatMessages(chatActiveId);
-      document.getElementById('messages').innerHTML = '';
-      setTimeout(() => {
-        renderMessages(AppState.messages);
-      }, 300);
+      const messagesEl = document.getElementById('messages');
+      messagesEl.innerHTML = '';
+      await loadChatMessages(chatActiveId);
+      renderMessages(AppState.messages);
     }
 
     if (
@@ -85,17 +84,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     const lastMessage = AppState.messages[AppState.messages.length - 1];
     renderMessages([lastMessage]);
 
-    const chatLastMessageDiv = document
-      .querySelector(`.chat-item[data-chat-id="${lastMessage.chat_id}"]`)
-      .querySelector('.chat-info')
-      .querySelector('.chat-last-message');
-    if (lastMessage.message_text)
-      chatLastMessageDiv.textContent = lastMessage.message_text;
-    else chatLastMessageDiv.textContent = 'Файл';
+    const chatItem = document.querySelector(
+      `.chat-item[data-chat-id="${lastMessage.chat_id}"]`,
+    );
+    const chatLastMessageDiv = chatItem
+      ?.querySelector('.chat-info')
+      ?.querySelector('.chat-last-message');
+    if (!chatLastMessageDiv) return;
+
+    chatLastMessageDiv.textContent = lastMessage.message_text || 'Файл';
 
     const timeSpan = document.createElement('span');
     timeSpan.style.float = 'right';
-    timeSpan.textContent = formatTimeLocalFromUtcString(lastMessage.time);
+    timeSpan.textContent = formatTimeLocalFromUtcString(lastMessage.sent_at);
     chatLastMessageDiv.appendChild(timeSpan);
   });
 
@@ -111,17 +112,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     searchTimeout = setTimeout(async () => {
       await api
-        .get('/users/search_users', {
+        .get('/users/search', {
           params: {
             query: query,
           },
         })
         .then(res => res.data)
         .then(data => {
-          if (data.length > 0 && data.find(user => user.user_id !== userId)) {
+          if (data.length > 0 && data.find(user => user.id !== userId)) {
             searchResults.innerHTML = 'Написать пользователю:';
             data.forEach(user => {
-              if (user.user_id !== userId) {
+              if (user.id !== userId) {
                 const item = document.createElement('div');
                 item.className = 'search-result-item';
                 item.innerHTML = `
@@ -133,7 +134,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     </div>
                 `;
                 item.addEventListener('click', () => {
-                  startNewChat(user.user_id);
+                  startNewChat(user.id);
                   searchInput.value = '';
                   searchResults.style.display = 'none';
                 });
@@ -208,19 +209,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       try {
-        const response = await api.post('/messages/send_message', formData);
+      const response = await api.post(`/messages/${AppState.chatActiveId}`, formData);
 
-        if (response.data.status === 'success') {
+        if (response.data.status === 'ok') {
           if (AppState.tempChat === null) {
             AppState.addMessage(response.data.message);
           } else {
-            const response = await api.get('/chats/get_chat_by_user_ids', {
-              params: {
-                target_id: Number(
-                  AppState.tempChat.id.slice(5, AppState.tempChat.id.length),
-                ),
-              },
-            });
+            const response = await api.get(`/chats/direct/${
+              Number(AppState.tempChat.id.slice(5))
+            }`);
 
             const chatId = response.data;
 
@@ -240,6 +237,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         fileInput.value = null;
       } catch (error) {
         console.error('Ошибка отправки сообщения:', error);
+        const detail = error?.response?.data?.detail;
+        alert(typeof detail === 'string' ? detail : 'Не удалось отправить сообщение');
       } finally {
         setSendingState(false);
       }

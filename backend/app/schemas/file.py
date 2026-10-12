@@ -10,6 +10,10 @@ class FileCreate(BaseModel):
 class FileInDb(BaseModel):
     id: int
     file_path: str
+    owner_id: int
+    original_name: str
+    mime_type: str
+    size_bytes: int
 
     model_config = ConfigDict(from_attributes=True)
 
