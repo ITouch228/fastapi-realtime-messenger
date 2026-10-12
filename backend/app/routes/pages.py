@@ -8,7 +8,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
 from app.deps import templates
-from app.schemas.user import UserInDB
+from app.schemas.user import UserResponse
 from app.services.auth import (
     get_current_user,
     get_current_user_from_cookie,
@@ -31,7 +31,7 @@ async def get_register_page(request: Request):
 @router.get('/auth/login')
 async def get_login_page(
     request: Request,
-    current_user: UserInDB | None = Depends(get_current_user_from_cookie),
+    current_user: UserResponse | None = Depends(get_current_user_from_cookie),
 ):
     if not current_user:
         return templates.TemplateResponse('login.html', {'request': request})
@@ -41,7 +41,7 @@ async def get_login_page(
 @router.get('/messages')
 async def get_messages_page(
     request: Request,
-    current_user: UserInDB | None = Depends(get_current_user_from_cookie),
+    current_user: UserResponse | None = Depends(get_current_user_from_cookie),
 ):
     if not current_user:
         return RedirectResponse('/auth/login', status_code=302)
@@ -56,7 +56,7 @@ async def get_messages_page(
 
 @router.get('/sse-updates')
 async def sse_updates(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserResponse = Depends(get_current_user),
 ):
     queue = bus.subscribe(current_user.id)
 

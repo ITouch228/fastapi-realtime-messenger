@@ -11,7 +11,7 @@ class EventBus:
         self._subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
 
     def subscribe(self, user_id: int) -> asyncio.Queue:
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue = asyncio.Queue(maxsize=256)
         self._subscribers[user_id].add(queue)
         return queue
 

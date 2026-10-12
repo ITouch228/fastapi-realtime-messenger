@@ -41,7 +41,7 @@ class SessionManager:
 
 
 async def get_session_manager() -> SessionManager:
-    """FastAPI dependency: build SessionManager with the shared Redis client."""
+    """FastAPI dependency."""
     redis = await get_redis()
     return SessionManager(
         redis=redis,

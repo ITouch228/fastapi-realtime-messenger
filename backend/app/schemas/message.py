@@ -20,7 +20,7 @@ class MessageInDb(BaseModel):
     sender_id: int = Field(validation_alias=AliasChoices('sender_id', 'user_from_id'))
     message_text: str | None
     message_file_id: int | None
-    time: datetime
+    sent_at: datetime
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

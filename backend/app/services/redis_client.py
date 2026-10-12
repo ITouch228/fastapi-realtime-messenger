@@ -1,5 +1,3 @@
-"""Redis client for session storage."""
-
 import redis.asyncio as aioredis
 from redis.asyncio import ConnectionPool
 
@@ -10,8 +8,8 @@ _client: aioredis.Redis | None = None
 
 
 async def get_redis() -> aioredis.Redis:
-    """Get (or create) async Redis connection."""
-    global _client, _pool
+    """Получение клиента Redis."""
+    global _client, _pool  # noqa: PLW0603
 
     if _client is not None:
         return _client
@@ -26,8 +24,8 @@ async def get_redis() -> aioredis.Redis:
 
 
 async def close_redis():
-    """Close Redis connection pool."""
-    global _client, _pool
+    """Закрытие клиента Redis."""
+    global _client, _pool  # noqa: PLW0603
 
     if _client is not None:
         await _client.close()

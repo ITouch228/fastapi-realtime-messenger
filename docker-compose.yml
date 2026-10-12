@@ -54,6 +54,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./backend/app/static:/app/app/static
+      - ./backend/app/templates:/app/app/templates
     ports:
       - '8000:8000'
     networks:

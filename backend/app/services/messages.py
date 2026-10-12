@@ -9,7 +9,7 @@ from app.config import FILES_ROOT
 from app.dao.dao import FileDAO
 from app.schemas.file import FileInDb, FileMeta
 from app.schemas.message import MessageOut
-from app.utils.file_path import resolve_file_path
+from app.utils.files import resolve_file_path
 from app.utils.logging_config import get_logger
 
 ALLOWED_MIME_TYPES = {
@@ -31,6 +31,7 @@ logger = get_logger(__name__)
 
 
 def build_file_meta(file_id: int, file_path: str | os.PathLike[str]) -> FileMeta:
+    """Возвращает метаданные файла."""
     path_str = os.fspath(file_path)
     mime_type, _ = mimetypes.guess_type(path_str)
     mime_type = mime_type or 'application/octet-stream'
@@ -49,6 +50,7 @@ def build_file_meta(file_id: int, file_path: str | os.PathLike[str]) -> FileMeta
 
 
 async def build_message_out(message, session: AsyncSession) -> MessageOut:
+    """Возвращает сообщение в формате для ответа."""
     file_meta = None
 
     if message.message_file_id:
@@ -63,7 +65,7 @@ async def build_message_out(message, session: AsyncSession) -> MessageOut:
         chat_id=message.chat_id,
         sender_id=message.sender_id,
         message_text=message.message_text,
-        time=message.time,
+        sent_at=message.sent_at,
         message_file_id=message.message_file_id,
         file=file_meta,
     )
@@ -74,7 +76,7 @@ async def _resolve_file_meta(
     message_file_id: int,
     message_id: int,
 ) -> FileMeta | None:
-    """Resolve file metadata; return None on any failure without breaking the message."""
+    """Расчет метаданных файла для сообщения."""
     try:
         file_in_db = await FileDAO.find_one_or_none(session=session, id=message_file_id)
         if not file_in_db:

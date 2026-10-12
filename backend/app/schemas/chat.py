@@ -5,7 +5,7 @@ class ChatBase(BaseModel):
     email: EmailStr
 
 
-class ChatInDb(BaseModel):
+class ChatInDb(ChatBase):
     id: int
     users: list[int]
 

@@ -1,6 +1,10 @@
 {
+  "scripts": {
+    "tunnel": "npx --yes localtunnel --port 8000"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
-    "globals": "^17.3.0"
+    "globals": "^17.3.0",
+    "localtunnel": "^2.0.2"
   }
 }

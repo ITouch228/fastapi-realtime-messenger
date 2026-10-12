@@ -12,23 +12,20 @@ const messagesContainer = document.getElementById('messages');
 
 export const getUserInfo = async userId => {
   try {
-    const response = await api.get('/users/get_user_info', {
-      params: { user_id: userId },
-    });
-    const userInfo = response.data;
-    return userInfo;
+    const response = await api.get(`/users/${userId}`)
+    const userInfo = response.data
+    return userInfo
   } catch (error) {
-    console.error('Ошибка загрузки информации о пользователе:', error);
+    console.error('Ошибка загрузки информации о пользователе:', error)
     return {
       username: `Пользователь ${userId}`,
-      avatar: '?',
     };
   }
 };
 
 export const loadChats = async () => {
   try {
-    const response = await api.get('/chats/get_user_chats');
+    const response = await api.get('/chats');
     const chats = response.data;
     AppState.setPersistentChats(chats);
   } catch (error) {
@@ -46,9 +43,9 @@ export const renderChats = async chats => {
         const userInfo = await getUserInfo(targetUserId);
 
         // Форматируем время последнего сообщения
-        let lastMessageTime = '';
-        if (chat.lastMessageTime) {
-          lastMessageTime = formatTimeLocalFromUtcString(chat.lastMessageTime);
+        let lastMessageSentAt = '';
+        if (chat.lastMessageSentAt) {
+          lastMessageSentAt = formatTimeLocalFromUtcString(chat.lastMessageSentAt);
         }
 
         // Создаем элемент чата
@@ -69,13 +66,13 @@ export const renderChats = async chats => {
         lastMessageDiv.className = 'chat-last-message';
 
         const lastMessageText =
-          chat.lastMessage || (chat.lastMessageTime ? 'Файл' : 'Нет сообщений');
+          chat.lastMessage || (chat.lastMessageSentAt ? 'Файл' : 'Нет сообщений');
         lastMessageDiv.textContent = lastMessageText;
 
-        if (lastMessageTime) {
+        if (lastMessageSentAt) {
           const timeSpan = document.createElement('span');
           timeSpan.style.float = 'right';
-          timeSpan.textContent = lastMessageTime;
+          timeSpan.textContent = lastMessageSentAt;
           lastMessageDiv.appendChild(timeSpan);
         }
 
@@ -155,11 +152,7 @@ export const renderChats = async chats => {
 
 export const loadChatMessages = async chatId => {
   try {
-    const response = await api.get('/chats/get_chat_messages', {
-      params: {
-        chat_id: chatId,
-      },
-    });
+    const response = await api.get(`/chats/${chatId}/messages`);
 
     if (!response || !response.data) {
       console.error('Некорректный ответ от сервера', response);
@@ -168,8 +161,8 @@ export const loadChatMessages = async chatId => {
 
     const messages = response.data;
     messages.sort((a, b) => {
-      if (a.time > b.time) return 1;
-      else if (a.time === b.time) return 0;
+      if (a.sent_at > b.sent_at) return 1;
+      else if (a.sent_at === b.sent_at) return 0;
       else return -1;
     });
     AppState.setMessages(messages);
@@ -307,9 +300,7 @@ export const renderMessages = async messages => {
 
 export const startNewChat = async targetId => {
   console.log(targetId);
-  const response = await api.get('/chats/get_chat_by_user_ids', {
-    params: { target_id: targetId },
-  });
+  const response = await api.get(`/chats/direct/${targetId}`);
   const chatId = response.data;
   if (chatId) {
     const existingChat = document.getElementById(chatId);

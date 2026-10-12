@@ -2,6 +2,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dao.dao import ChatDAO, MessageDAO
+from app.schemas.chat import ChatInDb
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -20,9 +21,8 @@ async def add_user_chat_in_db(id1: int, id2: int, session: AsyncSession):
         raise HTTPException(status_code=400, detail='Chat registration failed')
 
 
-async def get_user_chat_in_db(chat_id: int, session: AsyncSession):
+async def get_chat_in_db(chat_id: int, session: AsyncSession):
     try:
-        logger.info(f'Searching user with params: {chat_id}')
         chat = await ChatDAO.find_one_or_none(session, id=chat_id)
         return chat
     except HTTPException:
@@ -33,22 +33,25 @@ async def get_user_chat_in_db(chat_id: int, session: AsyncSession):
 
 
 async def get_user_chats_in_db(user_id: int, session: AsyncSession):
-    logger.info(f'get_user_chats_in_db: {user_id}')
-    chats = await ChatDAO.get_all_user_chats(session=session, user_id=user_id)
+    chats = await ChatDAO.get_user_chats(session=session, user_id=user_id)
 
     result = []
     if chats is not None:
         for chat in chats:
             # Получаем последнее сообщение для этого чата
-            messages = await MessageDAO.find_all_or_none(
-                session=session, chat_id=chat.id, order_by='time desc', limit=1
+            messages = await MessageDAO.list_messages(
+                session=session,
+                chat_id=chat.id,
+                order_by='sent_at',
+                descending=True,
+                limit=1,
             )
 
             last_message = None
             if messages:
                 last_message = {
                     'text': messages[0].message_text,
-                    'time': messages[0].time,
+                    'sent_at': messages[0].sent_at,
                 }
 
             result.append(
@@ -56,7 +59,9 @@ async def get_user_chats_in_db(user_id: int, session: AsyncSession):
                     'id': chat.id,
                     'users': chat.users,
                     'lastMessage': last_message['text'] if last_message else None,
-                    'lastMessageTime': last_message['time'] if last_message else None,
+                    'lastMessageSentAt': last_message['sent_at']
+                    if last_message
+                    else None,
                 }
             )
 
@@ -64,14 +69,15 @@ async def get_user_chats_in_db(user_id: int, session: AsyncSession):
 
 
 async def get_chat_by_user_ids_in_db(
-    user_id: int, target_id: int, session: AsyncSession
+    user_a_id: int, user_b_id: int, session: AsyncSession
 ):
-    logger.info(f'get_chat_by_user_ids_in_db: {user_id}, {target_id}')
-    chats = await ChatDAO.search_chats(
-        session=session, current_user_id=user_id, user_id=target_id
+    chat = await ChatDAO.find_between_users(
+        session=session, user_a_id=user_a_id, user_b_id=user_b_id
     )
 
-    return chats[0] if chats else None
+    if chat:
+        return ChatInDb.model_validate(chat).id
+    return None
 
 
 async def delete_chat_in_db(chat_id: int, session: AsyncSession):

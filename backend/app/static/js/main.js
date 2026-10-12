@@ -95,7 +95,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const timeSpan = document.createElement('span');
     timeSpan.style.float = 'right';
-    timeSpan.textContent = formatTimeLocalFromUtcString(lastMessage.time);
+    
+    timeSpan.textContent = formatTimeLocalFromUtcString(lastMessage.sentAt);
     chatLastMessageDiv.appendChild(timeSpan);
   });
 
@@ -111,7 +112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     searchTimeout = setTimeout(async () => {
       await api
-        .get('/users/search_users', {
+        .get('/users/search', {
           params: {
             query: query,
           },
@@ -133,7 +134,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     </div>
                 `;
                 item.addEventListener('click', () => {
-                  startNewChat(user.user_id);
+                  startNewChat(user.id);
                   searchInput.value = '';
                   searchResults.style.display = 'none';
                 });
@@ -208,9 +209,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       try {
-        const response = await api.post('/messages/send_message', formData);
+        const response = await api.post(`${AppState.chatActiveId}/messages`, formData);
 
-        if (response.data.status === 'success') {
+        if (response.data.status === 'ok') {
           if (AppState.tempChat === null) {
             AppState.addMessage(response.data.message);
           } else {

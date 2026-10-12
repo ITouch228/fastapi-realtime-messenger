@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from typing import cast
 
 import uvicorn
@@ -13,13 +14,20 @@ from starlette.responses import Response
 from app.config import STATIC_DIR
 from app.routes import auth, chats, files, messages, pages, users, ws
 from app.services.limiter import limiter
+from app.services.redis_client import close_redis
 from app.utils.logging_config import get_logger, setup_logging
 
 setup_logging()
 logger = get_logger(__name__)
 
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    await close_redis()
+
+
+app = FastAPI(lifespan=lifespan)
 
 app.state.limiter = limiter
 app.add_exception_handler(

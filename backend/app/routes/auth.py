@@ -4,30 +4,28 @@ from fastapi import (
     APIRouter,
     Cookie,
     Depends,
-    Form,
     HTTPException,
     Request,
     Response,
     status,
 )
+from jose import JWTError
+from redis import RedisError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.responses import JSONResponse, RedirectResponse
+from starlette.responses import JSONResponse
 
 from app.config import settings
 from app.dao.dao import UserDAO
 from app.database import get_session
-from app.deps import templates
-from app.schemas.user import UserCreate, UserInDB, UserResponse
+from app.schemas.user import UserCreate, UserLogin
 from app.services.auth import (
     authenticate_user,
-    create_access_token,
-    create_refresh_token,
-    get_current_user,
-    get_password_hash,
-    verify_token,
+    create_user,
 )
 from app.services.limiter import limiter
 from app.services.session_manager import SessionManager, get_session_manager
+from app.utils.jwt import create_access_token, create_refresh_token, verify_token
 from app.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -35,169 +33,121 @@ router = APIRouter(prefix='/auth')
 
 
 @router.post('/register', status_code=status.HTTP_201_CREATED)
-@limiter.limit('3/hour')
-async def post_register(
+@limiter.limit('10/hour')
+async def register(
     request: Request,
-    user_data: UserCreate = Form(...),
+    user_data: UserCreate,
     session: AsyncSession = Depends(get_session),
 ):
-    logger.info(
-        f'Registration attempt for user with username: {user_data.username} and email: {user_data.email}'
-    )
-
     username = user_data.username.strip()
-    email = user_data.email.strip()
+    email = user_data.email.strip().lower()
     password = user_data.password
 
-    existing_user_username = await UserDAO.find_one_or_none(
-        session=session, username=user_data.username
+    logger.info(
+        'Попытка регистрации пользователя: %s, %s',
+        email,
+        username,
     )
-    if existing_user_username:
-        return templates.TemplateResponse(
-            'register.html',
-            {
-                'request': request,
-                'message': 'Пользователь с таким именем уже существует',
-            },
-            status_code=400,
-        )
-    existing_user_email = await UserDAO.find_one_or_none(
-        session=session, email=user_data.email
-    )
-    if existing_user_email:
-        return templates.TemplateResponse(
-            'register.html',
-            {
-                'request': request,
-                'message': 'Пользователь с такой почтой уже существует',
-            },
-            status_code=400,
-        )
 
     try:
-        user_dict = {
-            'username': username,
-            'email': email,
-            'hashed_password': get_password_hash(password),
-        }
-
-        user = await UserDAO.add(session=session, **user_dict)
-        if not user:
-            logger.error(
-                f'Registration failed for user with username: {user_data.username}, email: {user_data.email}'
-            )
-            return templates.TemplateResponse(
-                'register.html',
-                {'request': request, 'message': 'Ошибка при регистрации'},
-                status_code=400,
-            )
-        logger.info(f'Successfully registered user with ID: {user.id}')
-        return templates.TemplateResponse(
-            'login.html',
-            {'request': request, 'message': 'Регистрация прошла успешно!'},
+        user = await create_user(
+            session=session, username=username, email=email, password=password
         )
 
-    except Exception as e:
-        logger.error(f'Registration error: {str(e)}')
-        return templates.TemplateResponse(
-            'register.html', {'request': request, 'message': 'Ошибка при регистрации'}
-        )
+        logger.info('Успешная регистрация пользователя: %s', user.id)
+        return {'status': 'ok'}
+    except IntegrityError as e:
+        constraint = getattr(e.orig, 'constraint_name', '') or ''
+        if 'users_username_key' in constraint:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail='Пользователь с таким именем уже существует',
+            )
+        if 'users_email_key' in constraint:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail='Пользователь с таким email уже существует',
+            )
+        logger.exception('Неизвестная ошибка целостности при регистрации')
+        raise HTTPException(500, 'Ошибка регистрации')
 
 
-@router.post('/login')
+@router.post('/login', status_code=status.HTTP_200_OK)
 @limiter.limit('5/minute')
-async def post_login(
+async def login(
     request: Request,
-    response: Response,
-    username: str = Form(...),
-    password: str = Form(...),
+    user_data: UserLogin,
     session: AsyncSession = Depends(get_session),
     session_manager: SessionManager = Depends(get_session_manager),
 ):
+    login = user_data.login.strip()
+    password = user_data.password
+
+    logger.info('Попытка входа с логином: %s', login)
+
+    authenticated_user = await authenticate_user(
+        session=session, login=login, password=password
+    )
+    if not authenticated_user:
+        logger.warning('Неверный пароль для пользователя с логином: %s', login)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Неверный пароль',
+        )
+
     try:
-        logger.info(f'Login attempt for username: {username}')
-
-        user = await UserDAO.find_one_or_none(session=session, username=username)
-        if not user:
-            logger.warning(f'User not found: {username}')
-            return templates.TemplateResponse(
-                'login.html',
-                {'request': request, 'message': 'Неверный логин или пароль'},
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        authenticated_user = await authenticate_user(
-            session=session, username=username, password=password
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        session_id = await session_manager.create(authenticated_user.id)
+        access_token = create_access_token(
+            session_id=session_id,
+            expires_delta=access_token_expires,
         )
-        if not authenticated_user:
-            logger.warning(f'Invalid password for user: {username}')
-            return templates.TemplateResponse(
-                'login.html',
-                {'request': request, 'message': 'Неверный логин или пароль'},
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        try:
-            access_token_expires = timedelta(
-                minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-            )
-            # session_id кладём в sub токенов, а user_id храним значением ключа в Redis
-            session_id = await session_manager.create(authenticated_user.id)
-            access_token = create_access_token(
-                session_id=session_id,
-                expires_delta=access_token_expires,
-            )
-            refresh_token = create_refresh_token(session_id=session_id)
-        except Exception as e:
-            logger.error(f'Token generation failed: {str(e)}')
-            raise HTTPException(status_code=500, detail='Authentication failed')
-
-        logger.info(f'Successful login for user ID: {authenticated_user.id}')
-
-        response = RedirectResponse(url='/messages', status_code=status.HTTP_302_FOUND)
-
-        response.set_cookie(
-            key='access',
-            value=access_token,
-            httponly=True,
-            secure=settings.COOKIE_SECURE,
-            samesite=settings.COOKIE_SAMESITE,
-            max_age=access_token_expires.seconds,
+        refresh_token = create_refresh_token(session_id=session_id)
+    except (JWTError, RedisError):
+        logger.exception(
+            'Ошибка генерации токена для пользователя: %s', authenticated_user.id
         )
-        response.set_cookie(
-            key='refresh',
-            value=refresh_token,
-            httponly=True,
-            secure=settings.COOKIE_SECURE,
-            samesite=settings.COOKIE_SAMESITE,
-            max_age=int(
-                timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS).total_seconds()
-            ),
-        )
-
-        return response
-
-    except Exception as e:
-        logger.error(f'Login error for {username}: {str(e)}')
-        return templates.TemplateResponse(
-            'login.html',
-            {'request': request, 'message': 'Произошла ошибка при входе'},
+        raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Ошибка аутентификации',
         )
+
+    logger.info('Успешный вход пользователя: %s', authenticated_user.id)
+
+    response = JSONResponse(content={'status': 'ok'})
+
+    response.set_cookie(
+        key='access',
+        value=access_token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=int(access_token_expires.total_seconds()),
+    )
+    response.set_cookie(
+        key='refresh',
+        value=refresh_token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=int(timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS).total_seconds()),
+    )
+
+    return response
 
 
 @router.post('/logout')
 async def logout(
+    request: Request,
     access: str = Cookie(default=None, alias='access'),
     session_manager: SessionManager = Depends(get_session_manager),
 ):
     if access:
-        # sub access-токена хранит session_id, по нему удаляем сессию в Redis
         session_id = verify_token(access, token_type='access')
         if session_id:
             await session_manager.remove(session_id)
 
-    response = JSONResponse(content={'status': 'success'})
+    response = JSONResponse(content={'status': 'ok'})
 
     response.delete_cookie(
         key='access',
@@ -217,13 +167,9 @@ async def logout(
     return response
 
 
-@router.get('/me', response_model=UserResponse)
-async def read_me(current_user: UserInDB = Depends(get_current_user)):
-    return current_user
-
-
 @router.post('/refresh')
 async def refresh_token(
+    request: Request,
     response: Response,
     refresh: str = Cookie(default=None, alias='refresh'),
     session: AsyncSession = Depends(get_session),
@@ -231,43 +177,47 @@ async def refresh_token(
 ):
     if not refresh:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail='No refresh token provided'
+            status_code=status.HTTP_401_UNAUTHORIZED, detail='Не передан refresh токен'
         )
 
-    # sub refresh-токена хранит session_id, user_id достаём из значения ключа в Redis
     session_id = verify_token(refresh, token_type='refresh')
     if not session_id:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid refresh token'
+            status_code=status.HTTP_401_UNAUTHORIZED, detail='Неверный refresh токен'
         )
 
     user_id = await session_manager.get_user_id(session_id)
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Refresh token has been revoked',
+            detail='Неверный refresh токен',
         )
 
-    # Деактивированный/удалённый пользователь не должен продлевать сессию
     user = await UserDAO.find_one_or_none(session=session, id=user_id)
     if user is None or not user.is_active:
         await session_manager.remove(session_id)
-        logger.warning(f'Refresh rejected for inactive/unknown user_id={user_id}')
+        logger.warning('Пользователь с id: %s не активен', user_id)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='User is not active',
+            detail='Пользователь не активен',
         )
 
-    # Ротация сессии: инвалидируем старую и выдаём новую
     await session_manager.remove(session_id)
     new_session_id = await session_manager.create(user_id)
 
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    new_access_token = create_access_token(
-        session_id=new_session_id,
-        expires_delta=access_token_expires,
-    )
-    new_refresh_token = create_refresh_token(session_id=new_session_id)
+    try:
+        access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        new_access_token = create_access_token(
+            session_id=new_session_id,
+            expires_delta=access_token_expires,
+        )
+        new_refresh_token = create_refresh_token(session_id=new_session_id)
+    except (JWTError, RedisError):
+        logger.exception('Ошибка генерации токена для пользователя: %s', user_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail='Ошибка аутентификации',
+        )
 
     response.set_cookie(
         key='access',
@@ -275,7 +225,7 @@ async def refresh_token(
         httponly=True,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
-        max_age=access_token_expires.seconds,
+        max_age=int(access_token_expires.total_seconds()),
     )
     response.set_cookie(
         key='refresh',
@@ -286,4 +236,4 @@ async def refresh_token(
         max_age=int(timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS).total_seconds()),
     )
 
-    return {'status': 'success'}
+    return {'status': 'ok'}

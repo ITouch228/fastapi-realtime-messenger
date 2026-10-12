@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator
 from datetime import datetime
 
-from sqlalchemy import Integer, func
+from sqlalchemy import DateTime, Integer, func
 from sqlalchemy.ext.asyncio import (
     AsyncAttrs,
     AsyncSession,
@@ -25,11 +25,10 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_maker() as session:
         try:
             yield session
-        except Exception as e:
+            await session.commit()
+        except Exception:
             await session.rollback()
-            raise e
-        finally:
-            await session.close()
+            raise
 
 
 class Base(AsyncAttrs, DeclarativeBase):
@@ -37,9 +36,14 @@ class Base(AsyncAttrs, DeclarativeBase):
     __tablename__: str
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
     )
 
     def to_dict(self) -> dict:
