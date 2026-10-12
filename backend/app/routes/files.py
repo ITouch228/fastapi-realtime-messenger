@@ -1,7 +1,7 @@
 import io
 import mimetypes
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from PIL import Image
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,12 +39,16 @@ async def download_file(
 
     file = await FileDAO.find_one_or_none(session=session, id=file_id)
     if not file:
-        raise HTTPException(status_code=404, detail='File not found')
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail='Файл не найден'
+        )
 
     db_path = FileInDb.model_validate(file).file_path
     file_path = resolve_file_path(db_path)
     if not file_path:
-        raise HTTPException(status_code=404, detail='File not found')
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail='Файл не найден'
+        )
 
     # Определяем тип устройства по User-Agent
     user_agent = request.headers.get('User-Agent', '').lower()
@@ -86,8 +90,8 @@ async def download_file(
                         'Vary': 'Accept',
                     },
                 )
-        except Exception as e:
-            logger.error(f'Image processing error: {str(e)}')
+        except Exception:
+            logger.exception('Ошибка при загрузке изображения')
             return FileResponse(file_path, media_type=mime_type)
 
     return FileResponse(

@@ -1,4 +1,8 @@
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
+
+from app.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class ConnectionManager:
@@ -26,8 +30,10 @@ class ConnectionManager:
         for conn in conns:
             try:
                 await conn.send_json(message)
-            except Exception:
+            except (ConnectionError, WebSocketDisconnect):
                 dead.append(conn)
+            except Exception:
+                logger.exception('Не удалось отправить WS-сообщение')
         for conn in dead:
             self.disconnect(conn, user_id)
 

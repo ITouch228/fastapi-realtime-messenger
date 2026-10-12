@@ -1,4 +1,5 @@
 import AppState from '/static/js/state.js';
+import { formatTimeLocalFromUtcString } from '/static/js/utils.js';
 
 export function handleWebSocketMessage(message) {
   if (!message || typeof message !== 'object') {
@@ -31,28 +32,27 @@ export function handleWebSocketMessage(message) {
         AppState.addMessage({
           id: message.message.id,
           chat_id: message.message.chat_id,
-          user_from_id: message.message.user_from_id,
+          sender_id: message.message.sender_id,
           message_text: message.message.message_text,
           message_file_id: message.message.message_file_id,
-          time: message.message.time,
+          sent_at: message.message.sent_at,
+          file: message.message.file,
         });
       } else {
         setTimeout(() => {
-          const chatLastMessageDiv = document
-            .querySelector(
-              `.chat-item[data-chat-id="${String(message.message.chat_id)}"]`,
-            )
-            .querySelector('.chat-info')
-            .querySelector('.chat-last-message');
-          if (message.message.message_text)
-            chatLastMessageDiv.textContent = message.message.message_text;
-          else chatLastMessageDiv.textContent = 'Файл';
+          const chatItem = document.querySelector(
+            `.chat-item[data-chat-id="${String(message.message.chat_id)}"]`,
+          );
+          const chatLastMessageDiv = chatItem
+            ?.querySelector('.chat-info')
+            ?.querySelector('.chat-last-message');
+          if (!chatLastMessageDiv) return;
 
-          const timeParts = message.message.time.split(' ');
-          const lastMessageTime = `${timeParts[3]}:${timeParts[4]}`;
+          chatLastMessageDiv.textContent = message.message.message_text || 'Файл';
+
           const timeSpan = document.createElement('span');
           timeSpan.style.float = 'right';
-          timeSpan.textContent = lastMessageTime;
+          timeSpan.textContent = formatTimeLocalFromUtcString(message.message.sent_at);
           chatLastMessageDiv.appendChild(timeSpan);
         }, 300);
       }

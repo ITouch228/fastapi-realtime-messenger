@@ -21,11 +21,12 @@ class MessageInDb(BaseModel):
     message_text: str | None
     message_file_id: int | None
     sent_at: datetime
+    is_deleted: bool
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-class MessageOut(MessageInDb):
+class MessageResponse(MessageInDb):
     file: FileMeta | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

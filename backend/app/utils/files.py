@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 import aiofiles
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from PIL import Image
 
 from app.config import FILES_ROOT
@@ -56,20 +56,26 @@ async def compress_image(image_bytes: bytes, quality: int = 85) -> bytes:
         compressed = output_buffer.getvalue()
         # Никогда не увеличиваем файл.
         return compressed if len(compressed) < len(image_bytes) else image_bytes
-    except Exception as e:
-        logger.error(f'Image compression error: {str(e)}')
+    except Exception:
+        logger.exception('Ошибка сжатия изображения')
         return image_bytes  # Возвращаем оригинал, если ошибка
 
 
 async def save_file(chat_id: int, file_name: str, file_content: bytes) -> bool:
     if chat_id < 0:
-        raise HTTPException(status_code=400, detail='Invalid chat ID')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='Некорректный ID чата'
+        )
 
     if '..' in file_name or file_name.startswith('/'):
-        raise HTTPException(status_code=400, detail='Invalid file name')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='Некорректное имя файла'
+        )
 
     if len(file_content) == 0:
-        raise HTTPException(status_code=400, detail='Empty file content')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='Пустое содержимое файла'
+        )
 
     allowed_extensions = [
         '.jpg',
@@ -87,17 +93,24 @@ async def save_file(chat_id: int, file_name: str, file_content: bytes) -> bool:
     ]
     file_ext = os.path.splitext(file_name)[1].lower()
     if file_ext not in allowed_extensions:
-        raise HTTPException(status_code=400, detail='File type not allowed')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='Недопустимый тип файла'
+        )
 
     if len(file_content) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail='File too large')
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail='Файл слишком большой',
+        )
 
     rel_path = f'{chat_id}/{file_name}'
 
     abs_path = (FILES_ROOT / rel_path).resolve()
 
     if not str(abs_path).startswith(str(FILES_ROOT.resolve())):
-        raise HTTPException(status_code=400, detail='Invalid file path')
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='Некорректный путь файла'
+        )
 
     try:
         os.makedirs(abs_path.parent, exist_ok=True)
@@ -108,15 +121,17 @@ async def save_file(chat_id: int, file_name: str, file_content: bytes) -> bool:
                 img.verify()
                 file_content = await compress_image(file_content)
             except Exception:
-                raise HTTPException(status_code=400, detail='Invalid image file')
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail='Некорректный файл изображения',
+                )
 
         async with aiofiles.open(abs_path, 'wb') as f:
             await f.write(file_content)
 
         return True
     except HTTPException:
-        # Re-raise HTTP exceptions as they are already properly formatted
         raise
-    except Exception as e:
-        logger.error(f'File save error: {str(e)}')
+    except Exception:
+        logger.exception('Ошибка сохранения файла: %s', file_name)
         return False

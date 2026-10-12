@@ -25,7 +25,10 @@ class EventBus:
             try:
                 queue.put_nowait(payload)
             except asyncio.QueueFull:
-                logger.warning(f'SSE queue full for user_id={user_id}, dropping event')
+                logger.warning(
+                    'Очередь SSE переполнена для пользователя %s, событие отброшено',
+                    user_id,
+                )
 
 
 bus = EventBus()

@@ -1,13 +1,8 @@
-export const formatTimeLocalFromUtcString = utcStr => {
-  // ожидаем: "YYYY MM DD HH MM SS"
-  const parts = String(utcStr).split(' ').map(Number);
-  if (parts.length < 6 || parts.some(n => !Number.isFinite(n))) return '';
-
-  const [y, mo, d, h, mi, s] = parts;
-  // создаём дату в UTC
-  const dt = new Date(Date.UTC(y, mo - 1, d, h, mi, s));
-
-  // форматируем как локальное время пользователя
+export const formatTimeLocalFromUtcString = isoStr => {
+  // ожидаем: ISO 8601 "2024-01-01T12:00:00+00:00" или "2024-01-01T12:00:00Z"
+  if (!isoStr) return '';
+  const dt = new Date(isoStr);
+  if (isNaN(dt.getTime())) return '';
   return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 

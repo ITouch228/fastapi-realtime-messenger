@@ -1,12 +1,7 @@
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict
 
 
-class ChatBase(BaseModel):
-    email: EmailStr
-
-
-class ChatInDb(ChatBase):
+class ChatInDb(BaseModel):
     id: int
-    users: list[int]
 
     model_config = ConfigDict(from_attributes=True)

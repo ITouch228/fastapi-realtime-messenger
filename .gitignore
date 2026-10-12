@@ -28,3 +28,5 @@ migration/versions/*.pyc
 Thumbs.db
 .idea/
 .vscode/
+
+files/

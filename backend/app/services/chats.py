@@ -1,4 +1,4 @@
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dao.dao import ChatDAO, MessageDAO
@@ -8,28 +8,31 @@ from app.utils.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-async def add_user_chat_in_db(id1: int, id2: int, session: AsyncSession):
-    logger.info(f'add_user_chat_in_db: {id1}, {id2}')
+async def add_user_chat_in_db(id1: int, id2: int, session: AsyncSession) -> int:
+    logger.info('Создание чата между пользователями: %s, %s', id1, id2)
     try:
         new_chat = await ChatDAO.add(
             session=session, users=[min(id1, id2), max(id1, id2)]
         )
-        logger.info(f'Successfully added chat: {min(id1, id2)}, {max(id1, id2)}')
+        logger.info('Чат успешно создан: %s, %s', min(id1, id2), max(id1, id2))
         return new_chat.id
-    except Exception as e:
-        logger.error(f'Error adding chat: {str(e)}')
-        raise HTTPException(status_code=400, detail='Chat registration failed')
+    except Exception:
+        logger.exception('Ошибка при создании чата: %s, %s', id1, id2)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='Ошибка создания чата'
+        )
 
 
 async def get_chat_in_db(chat_id: int, session: AsyncSession):
     try:
-        chat = await ChatDAO.find_one_or_none(session, id=chat_id)
-        return chat
+        return await ChatDAO.find_one_or_none(session, id=chat_id)
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f'Error finding chat: {str(e)}')
-        raise HTTPException(status_code=400, detail='Chat search failed')
+    except Exception:
+        logger.exception('Ошибка при поиске чата: %s', chat_id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail='Ошибка поиска чата'
+        )
 
 
 async def get_user_chats_in_db(user_id: int, session: AsyncSession):
@@ -38,7 +41,6 @@ async def get_user_chats_in_db(user_id: int, session: AsyncSession):
     result = []
     if chats is not None:
         for chat in chats:
-            # Получаем последнее сообщение для этого чата
             messages = await MessageDAO.list_messages(
                 session=session,
                 chat_id=chat.id,
@@ -49,9 +51,16 @@ async def get_user_chats_in_db(user_id: int, session: AsyncSession):
 
             last_message = None
             if messages:
+                msg = messages[0]
+                if msg.is_deleted:
+                    text = 'Удалено'
+                elif msg.message_text:
+                    text = msg.message_text
+                else:
+                    text = 'Файл'
                 last_message = {
-                    'text': messages[0].message_text,
-                    'sent_at': messages[0].sent_at,
+                    'text': text,
+                    'sent_at': msg.sent_at,
                 }
 
             result.append(
@@ -70,7 +79,7 @@ async def get_user_chats_in_db(user_id: int, session: AsyncSession):
 
 async def get_chat_by_user_ids_in_db(
     user_a_id: int, user_b_id: int, session: AsyncSession
-):
+) -> int | None:
     chat = await ChatDAO.find_between_users(
         session=session, user_a_id=user_a_id, user_b_id=user_b_id
     )
@@ -80,10 +89,10 @@ async def get_chat_by_user_ids_in_db(
     return None
 
 
-async def delete_chat_in_db(chat_id: int, session: AsyncSession):
-    logger.info(f'delete_chat_in_db: {chat_id}')
+async def delete_chat_in_db(chat_id: int, session: AsyncSession) -> int:
+    logger.info('Удаление чата: %s', chat_id)
     is_deleted = await ChatDAO.delete_chat(session=session, chat_id=chat_id)
     if is_deleted:
-        logger.info(f'Succesfuly deleted: {chat_id}')
+        logger.info('Чат успешно удалён: %s', chat_id)
 
     return is_deleted

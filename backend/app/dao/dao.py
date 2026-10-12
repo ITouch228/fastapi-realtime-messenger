@@ -48,7 +48,7 @@ class ChatDAO(BaseDAO[Chat]):
     ) -> list[Chat]:
         stmt = select(Chat).where(
             Chat.id.in_(chat_ids),
-            func.array_contains(Chat.users, [user_id]),
+            Chat.users.contains([user_id]),
         )
         return list((await session.execute(stmt)).scalars().all())
 

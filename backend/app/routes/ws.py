@@ -22,7 +22,7 @@ async def websocket_endpoint(
     # sub токена хранит session_id, user_id резолвим по значению ключа в Redis
     session_id = verify_token(token, 'access') if token else None
     if not session_id or await session_manager.get_user_id(session_id) != user_id:
-        logger.warning(f'WS auth rejected for user_id={user_id}')
+        logger.warning('WS авторизация отклонена для пользователя: %s', user_id)
         await websocket.close(code=4401)
         return
 

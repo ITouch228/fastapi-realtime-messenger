@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dao.dao import ChatDAO, MessageDAO
@@ -20,7 +20,36 @@ logger = get_logger(__name__)
 router = APIRouter(prefix='/messages')
 
 
-@router.post('/{chat_id}/messages', status_code=201)
+@router.get('/{chat_id}')
+async def get_chat_messages(
+    chat_id: str,
+    current_user: UserResponse = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    if chat_id.startswith('temp-'):
+        return []
+    chat_id_int = int(chat_id)
+
+    chat = await ChatDAO.find_one_or_none(session=session, id=chat_id_int)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail='Чат не найден'
+        )
+
+    if current_user.id not in (chat.users or []):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail='Доступ запрещен'
+        )
+
+    messages_in_db = await MessageDAO.find_all(session=session, chat_id=chat_id_int)
+
+    return [
+        await build_message_out(session=session, message=m)
+        for m in (messages_in_db or [])
+    ]
+
+
+@router.post('/{chat_id}', status_code=status.HTTP_201_CREATED)
 async def send_message(
     chat_id: str,
     message_text: str = Form(default=''),
@@ -37,13 +66,16 @@ async def send_message(
             try:
                 target_id = int(chat_id.split('-')[1])
             except ValueError:
-                raise HTTPException(status_code=400, detail='Invalid chat ID format')
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail='Неверный формат ID чата',
+                )
             chat = await ChatDAO.add(
                 session=session, users=[current_user.id, target_id]
             )
             chat_id = chat.id
             logger.info(
-                f'Notify user {target_id} with message: new_chat - {chat.to_dict()}'
+                'Уведомление о новом чате с ID: %s пользователя: %s', chat_id, target_id
             )
             await manager.send_personal_message(
                 {'type': 'new_chat', 'message': chat.to_dict()}, target_id
@@ -53,24 +85,37 @@ async def send_message(
             try:
                 chat_id = int(chat_id)
             except (ValueError, TypeError):
-                raise HTTPException(status_code=400, detail='Invalid chat ID format')
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail='Неверный формат ID чата',
+                )
 
         chat = await ChatDAO.find_one_or_none(session, id=chat_id)
         if not chat:
-            raise HTTPException(status_code=404, detail='Chat not found')
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail='Чат не найден'
+            )
         if current_user.id not in (chat.users or []):
-            raise HTTPException(status_code=403, detail='Forbidden')
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail='Доступ запрещен'
+            )
 
         # файл
         file_id = None
         if file:
             if file.size and file.size > 10 * 1024 * 1024:
-                raise HTTPException(status_code=413, detail='File too large')
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail='Файл слишком большой',
+                )
 
             file_content = await file.read()
             success = await save_file(chat_id, file_name, file_content)
             if not success:
-                raise HTTPException(status_code=500, detail='File save failed')
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail='Ошибка при сохранении файла',
+                )
 
             file_id = await add_file_to_db(
                 chat_id=chat_id,
@@ -82,7 +127,10 @@ async def send_message(
                 session=session,
             )
         if message_text and len(message_text) > 10000:
-            raise HTTPException(status_code=400, detail='Message too long')
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail='Сообщение слишком длинное',
+            )
 
         message = await MessageDAO.add(
             session=session,
@@ -98,7 +146,10 @@ async def send_message(
         for user in chat.users or []:
             if user != current_user.id:
                 await manager.send_personal_message(
-                    {'type': 'new_message', 'message': message_out.model_dump()},
+                    {
+                        'type': 'new_message',
+                        'message': message_out.model_dump(mode='json'),
+                    },
                     user,
                 )
                 await bus.publish(
@@ -113,14 +164,15 @@ async def send_message(
         return {'status': 'ok', 'message': message_out}
 
     except HTTPException:
-        # Re-raise HTTP exceptions as they are already properly formatted
         raise
-    except Exception as e:
-        logger.error(f'Message send error: {str(e)}', exc_info=True)
-        raise HTTPException(status_code=500, detail='Internal server error')
+    except Exception:
+        logger.exception('Ошибка при отправке сообщения')
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail='Ошибка сервера'
+        )
 
 
-@router.delete('/{message_id}', status_code=204)
+@router.delete('/{message_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_message(
     message_id: int,
     current_user: UserResponse = Depends(get_current_user),
@@ -128,17 +180,24 @@ async def delete_message(
 ):
     message = await MessageDAO.find_one_or_none(session=session, id=message_id)
     if not message:
-        raise HTTPException(status_code=404, detail='Message not found')
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail='Сообщение не найдено'
+        )
 
     # Удалять может только автор сообщения
     if message.sender_id != current_user.id:
-        raise HTTPException(status_code=403, detail='Forbidden')
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail='Доступ запрещен'
+        )
 
     # Дополнительная проверка: пользователь состоит в чате сообщения
     chat = await ChatDAO.find_one_or_none(session=session, id=message.chat_id)
     if not chat or current_user.id not in (chat.users or []):
-        raise HTTPException(status_code=403, detail='Forbidden')
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail='Доступ запрещен'
+        )
 
-    if await MessageDAO.soft_delete_message(session=session, message_id=message_id):
-        return {'status': 'ok'}
-    return {'status': 'denied'}
+    if not await MessageDAO.soft_delete_message(session=session, message_id=message_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail='Доступ запрещен'
+        )

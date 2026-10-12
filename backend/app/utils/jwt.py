@@ -53,9 +53,9 @@ def verify_token(token: str, token_type: str = 'access') -> str | None:
     except jwt.ExpiredSignatureError:
         logger.warning('Токен истёк')
         return None
-    except jwt.JWTError as e:
-        logger.error(f'Ошибка JWT: {str(e)}')
+    except jwt.JWTError:
+        logger.exception('Ошибка JWT')
         return None
-    except (ValueError, TypeError) as e:
-        logger.error(f'Ошибка парсинга токена: {str(e)}')
+    except (ValueError, TypeError):
+        logger.exception('Ошибка парсинга токена')
         return None

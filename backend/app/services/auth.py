@@ -54,16 +54,16 @@ async def get_current_user_from_cookie(
 
     user_id = await session_manager.get_user_id(session_id)
     if user_id is None:
-        logger.warning('Session expired or revoked: session_id=%s', session_id)
+        logger.warning('Сессия истекла или отозвана: session_id=%s', session_id)
         return None
 
     user = await UserDAO.find_one_or_none(session=session, id=user_id)
     if user is None:
-        logger.warning('User %s not found but session valid', user_id)
+        logger.warning('Пользователь %s не найден, но сессия валидна', user_id)
         return None
 
     if not user.is_active:
-        logger.warning('Inactive user attempted access: user_id=%s', user_id)
+        logger.warning('Неактивный пользователь попытался доступ: user_id=%s', user_id)
         return None
 
     return UserResponse.model_validate(user)
@@ -75,7 +75,7 @@ async def get_current_user(
     if current_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail='Not authenticated',
+            detail='Не аутентифицирован',
         )
 
     return current_user

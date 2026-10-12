@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dao.dao import UserDAO
@@ -37,6 +37,8 @@ async def get_user_info(
 ):
     user = await UserDAO.find_one_or_none(session=session, id=user_id)
     if not user:
-        raise HTTPException(status_code=404, detail='User not found')
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail='Пользователь не найден'
+        )
 
     return UserResponse.model_validate(user)
