@@ -4,9 +4,13 @@ from pydantic import BaseModel
 
 
 class TimestampMixin(BaseModel):
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class IDMixin(BaseModel):
     id: int
+
+
+class BaseDBSchema(TimestampMixin, IDMixin):
+    pass

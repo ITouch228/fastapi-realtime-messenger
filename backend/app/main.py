@@ -11,11 +11,11 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.config import STATIC_DIR
+from app.config import FILES_ROOT, STATIC_DIR
+from app.exceptions import register_exception_handlers
 from app.routes import auth, chats, files, messages, pages, users, ws
-from app.services.limiter import limiter
-from app.services.redis_client import close_redis
-from app.utils.logging_config import get_logger, setup_logging
+from app.services import close_redis, rate_limiter
+from app.utils import get_logger, setup_logging
 
 setup_logging()
 logger = get_logger(__name__)
@@ -23,13 +23,16 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    FILES_ROOT.mkdir(parents=True, exist_ok=True)
     yield
     await close_redis()
 
 
 app = FastAPI(lifespan=lifespan)
 
-app.state.limiter = limiter
+register_exception_handlers(app)
+
+app.state.limiter = rate_limiter
 app.add_exception_handler(
     RateLimitExceeded,
     cast('Callable[[Request, Exception], Response]', _rate_limit_exceeded_handler),
@@ -45,6 +48,8 @@ app.include_router(ws.router, prefix='/api')
 
 app.add_middleware(
     CORSMiddleware,
+    # TODO: [CONFIG] Origins захардкожены — вынести в settings.ALLOWED_ORIGINS (list[str]).
+    # docs/architecture.md §5: 🟢 CORS origins захардкожены
     allow_origins=[
         'http://localhost:8000',
         'http://127.0.0.1:8000',

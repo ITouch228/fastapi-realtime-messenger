@@ -1,25 +1,13 @@
-import io
-import mimetypes
-
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import Response
-from PIL import Image
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import FileResponse
 
-from app.dao.dao import FileDAO
 from app.database import get_session
-from app.schemas.file import FileInDb
-from app.schemas.user import UserResponse
-from app.services.auth import (
-    get_current_user,
-)
-from app.services.files import ensure_can_access_file
-from app.utils.files import resolve_file_path
-from app.utils.logging_config import get_logger
-
-logger = get_logger(__name__)
-
+from app.exceptions import NotFoundError
+from app.schemas import UserResponse
+from app.services import AuthManager, FileManager
+from app.utils import guess_mime_type, render_image_response, resolve_file_path
 
 router = APIRouter(prefix='/files')
 
@@ -30,72 +18,45 @@ async def download_file(
     file_id: int,
     width: float = Query(None),
     quality: int = Query(70),
-    current_user: UserResponse = Depends(get_current_user),
+    current_user: UserResponse = Depends(AuthManager.get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    await ensure_can_access_file(
+    await FileManager.ensure_can_access_file(
         session=session, current_user=current_user, file_id=file_id
     )
 
-    file = await FileDAO.find_one_or_none(session=session, id=file_id)
+    file = await FileManager.get(session=session, file_id=file_id)
     if not file:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Файл не найден'
-        )
+        raise NotFoundError(detail='Файл не найден')
 
-    db_path = FileInDb.model_validate(file).file_path
-    file_path = resolve_file_path(db_path)
+    file_path = resolve_file_path(file.file_path)
     if not file_path:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Файл не найден'
-        )
+        raise NotFoundError(detail='Файл не найден')
 
-    # Определяем тип устройства по User-Agent
+    # Параметры по умолчанию зависят от типа устройства (User-Agent)
     user_agent = request.headers.get('User-Agent', '').lower()
     is_mobile = (
         'mobile' in user_agent or 'android' in user_agent or 'iphone' in user_agent
     )
-
-    # Параметры по умолчанию для мобильных
     if is_mobile:
-        quality = quality if quality else 60
+        quality = quality or 60
         width = int(width) if width else 800
     else:
-        quality = quality if quality else 80
+        quality = quality or 80
         width = int(width) if width else 1200
 
-    mime_type, _ = mimetypes.guess_type(file_path)
-
-    if mime_type and mime_type.startswith('image/'):
-        try:
-            with Image.open(file_path) as img:
-                output_format = (
-                    'WEBP'
-                    if 'image/webp' in request.headers.get('Accept', '')
-                    else img.format
-                )
-
-                if width:
-                    img.thumbnail((width, width * 2))
-
-                output = io.BytesIO()
-                img.save(output, format=output_format, quality=quality, optimize=True)
-
-                return Response(
-                    output.getvalue(),
-                    media_type=f'image/{output_format.lower()}',
-                    headers={
-                        'Cache-Control': 'private, max-age=31536000',
-                        'Content-DPR': '1.0',
-                        'Vary': 'Accept',
-                    },
-                )
-        except Exception:
-            logger.exception('Ошибка при загрузке изображения')
-            return FileResponse(file_path, media_type=mime_type)
+    image_response = await run_in_threadpool(
+        render_image_response,
+        file_path=file_path,
+        accept_header=request.headers.get('Accept', ''),
+        width=width,
+        quality=quality,
+    )
+    if image_response is not None:
+        return image_response
 
     return FileResponse(
         file_path,
-        media_type=mime_type,
+        media_type=guess_mime_type(file_path),
         headers={'Cache-Control': 'private, max-age=31536000'},
     )

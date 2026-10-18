@@ -1,21 +1,12 @@
 from datetime import datetime
 
-from fastapi import File as FastAPI_File
-from fastapi import UploadFile
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, ConfigDict, Field
 
-from app.schemas.file import FileMeta
-
-
-class MessageCreate(BaseModel):
-    chat_id: str
-    message_text: str | None
-    file: UploadFile = FastAPI_File(default=None)
-    file_name: str | None
+from app.schemas.base import BaseDBSchema
+from app.schemas.file import FileResponse
 
 
-class MessageInDb(BaseModel):
-    id: int
+class MessageInDb(BaseDBSchema):
     chat_id: int
     sender_id: int = Field(validation_alias=AliasChoices('sender_id', 'user_from_id'))
     message_text: str | None
@@ -27,6 +18,6 @@ class MessageInDb(BaseModel):
 
 
 class MessageResponse(MessageInDb):
-    file: FileMeta | None = None
+    file: FileResponse | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

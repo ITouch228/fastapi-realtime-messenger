@@ -1,18 +1,28 @@
 from collections.abc import Sequence
-from typing import Any, Literal
+from typing import Any
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dao.base import BaseDAO
-from app.models.chat import Chat
-from app.models.file import File
-from app.models.message import Message
-from app.models.user import User
+from app.models import Chat, File, Message, User
+from app.utils import is_email
 
 
 class UserDAO(BaseDAO[User]):
     model = User
+
+    @classmethod
+    async def find_by_login(cls, session: AsyncSession, login: str) -> User | None:
+        login = login.strip()
+
+        if is_email(login):
+            stmt = select(cls.model).where(cls.model.email == login.lower())
+        else:
+            stmt = select(cls.model).where(cls.model.username == login)
+
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none()
 
     @classmethod
     async def search_by_username(
@@ -29,31 +39,32 @@ class UserDAO(BaseDAO[User]):
         return result.scalars().all()
 
     @classmethod
-    async def find_by_username_or_email(
-        cls, session: AsyncSession, login: str
-    ) -> User | None:
-        stmt = select(cls.model).where(
-            or_(cls.model.username == login, cls.model.email == login.lower())
+    async def update_last_seen(
+        cls, session: AsyncSession, user_id: int, when: Any
+    ) -> None:
+        stmt = (
+            update(cls.model).where(cls.model.id == user_id).values(last_seen_at=when)
+        )
+        await session.execute(stmt)
+
+    @classmethod
+    async def get_last_seen_map(
+        cls, session: AsyncSession, user_ids: list[int]
+    ) -> dict[int, Any]:
+        if not user_ids:
+            return {}
+        stmt = select(cls.model.id, cls.model.last_seen_at).where(
+            cls.model.id.in_(user_ids)
         )
         result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+        return {row.id: row.last_seen_at for row in result.all()}
 
 
 class ChatDAO(BaseDAO[Chat]):
     model = Chat
 
     @classmethod
-    async def find_by_ids_with_user(
-        cls, session: AsyncSession, chat_ids: list[int], user_id: int
-    ) -> list[Chat]:
-        stmt = select(Chat).where(
-            Chat.id.in_(chat_ids),
-            Chat.users.contains([user_id]),
-        )
-        return list((await session.execute(stmt)).scalars().all())
-
-    @classmethod
-    async def get_user_chats(
+    async def find_by_user(
         cls, session: AsyncSession, user_id: int, limit: int = 100
     ) -> Sequence[Chat]:
         stmt = (
@@ -64,6 +75,16 @@ class ChatDAO(BaseDAO[Chat]):
         )
         result = await session.execute(stmt)
         return result.scalars().all()
+
+    @classmethod
+    async def find_by_ids_and_user(
+        cls, session: AsyncSession, chat_ids: list[int], user_id: int
+    ) -> list[Chat]:
+        stmt = select(Chat).where(
+            Chat.id.in_(chat_ids),
+            Chat.users.contains([user_id]),
+        )
+        return list((await session.execute(stmt)).scalars().all())
 
     @classmethod
     async def find_between_users(
@@ -82,10 +103,20 @@ class ChatDAO(BaseDAO[Chat]):
         return result.scalar_one_or_none()
 
     @classmethod
-    async def delete_chat(cls, session: AsyncSession, chat_id: int) -> int:
+    async def delete(cls, session: AsyncSession, chat_id: int) -> int:
         stmt = delete(cls.model).where(cls.model.id == chat_id)
         result = await session.execute(stmt)
         return result.rowcount
+
+    @classmethod
+    async def get_peers(cls, session: AsyncSession, user_id: int) -> list[int]:
+        stmt = (
+            select(func.unnest(cls.model.users))
+            .where(Chat.users.contains([user_id]))
+            .distinct()
+        )
+        result = await session.execute(stmt)
+        return [uid for uid in result.scalars().all() if uid != user_id]
 
 
 class MessageDAO(BaseDAO[Message]):
@@ -101,25 +132,37 @@ class MessageDAO(BaseDAO[Message]):
         return list((await session.execute(stmt)).scalars().all())
 
     @classmethod
-    async def list_messages(
-        cls,
-        session: AsyncSession,
-        order_by: Literal['id', 'created_at', 'updated_at', 'sent_at'] = 'id',
-        descending: bool = False,
-        limit: int = 100,
-        offset: int = 0,
-        **filter_by: Any,
-    ) -> Sequence[Message]:
-        field = getattr(cls.model, order_by)
+    async def find_by_chat_with_chat(
+        cls, session: AsyncSession, chat_id: int
+    ) -> list[tuple[Chat, Message | None]]:
+        """Чат и его сообщения одним запросом (chat + messages)."""
         stmt = (
-            select(cls.model)
-            .filter_by(**filter_by)
-            .order_by(field.desc() if descending else field.asc())
-            .limit(limit)
-            .offset(offset)
+            select(Chat, cls.model)
+            .outerjoin(cls.model, cls.model.chat_id == Chat.id)
+            .where(Chat.id == chat_id)
+            .order_by(cls.model.id)
         )
         result = await session.execute(stmt)
-        return result.scalars().all()
+        rows: list[tuple[Chat, Message | None]] = []
+        for chat, message in result.all():
+            rows.append((chat, message))
+        return rows
+
+    @classmethod
+    async def find_with_chat_users(
+        cls, session: AsyncSession, message_id: int
+    ) -> tuple[Message, list[int]] | None:
+        """Сообщение вместе с участниками чата одним запросом (message + chat)."""
+        stmt = (
+            select(cls.model, Chat.users)
+            .join(Chat, Chat.id == cls.model.chat_id)
+            .where(cls.model.id == message_id)
+        )
+        row = (await session.execute(stmt)).one_or_none()
+        if row is None:
+            return None
+        message, users = row
+        return message, users
 
     @classmethod
     async def soft_delete_message(cls, session: AsyncSession, message_id: int) -> int:
@@ -131,6 +174,57 @@ class MessageDAO(BaseDAO[Message]):
         result = await session.execute(stmt)
         return result.rowcount
 
+    @classmethod
+    async def get_last_messages_for_chats(
+        cls, session: AsyncSession, chat_ids: list[int]
+    ) -> dict[int, tuple[str | None, Any, bool]]:
+        if not chat_ids:
+            return {}
+
+        row_num = (
+            func.row_number()
+            .over(
+                partition_by=cls.model.chat_id,
+                order_by=cls.model.sent_at.desc(),
+            )
+            .label('row_num')
+        )
+
+        subq = (
+            select(
+                cls.model.chat_id,
+                cls.model.message_text,
+                cls.model.sent_at,
+                cls.model.is_deleted,
+                row_num,
+            )
+            .where(cls.model.chat_id.in_(chat_ids))
+            .subquery()
+        )
+
+        stmt = select(
+            subq.c.chat_id,
+            subq.c.message_text,
+            subq.c.sent_at,
+            subq.c.is_deleted,
+        ).where(subq.c.row_num == 1)
+
+        result = await session.execute(stmt)
+        return {
+            row.chat_id: (row.message_text, row.sent_at, row.is_deleted)
+            for row in result.all()
+        }
+
 
 class FileDAO(BaseDAO[File]):
     model = File
+
+    @classmethod
+    async def find_by_ids(
+        cls, session: AsyncSession, file_ids: list[int]
+    ) -> Sequence[File]:
+        if not file_ids:
+            return []
+        stmt = select(cls.model).where(cls.model.id.in_(file_ids))
+        result = await session.execute(stmt)
+        return result.scalars().all()

@@ -5,8 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Форма регистрации</title>
     <link href="/static/css/register.css" rel="stylesheet" />
+    <link href="/static/css/badge.css" rel="stylesheet" />
   </head>
   <body>
+    <div class="pet-badge">
+      <span class="pet-badge__icon">🧪</span>
+      <span class="pet-badge__text">
+        <strong>Pet-проект</strong> — только для тестирования функционала.<br />
+        Не вводите личные и конфиденциальные данные.
+      </span>
+      <button class="pet-badge__close" type="button" aria-label="Закрыть">✕</button>
+    </div>
+
     <div class="container">
       <div class="form-container register-container">
         <h2>Регистрация</h2>
@@ -42,6 +52,7 @@
       </div>
     </div>
 
-    <script type="module" src="/static/js/register.js"></script>
+    <script type="module" src="/static/js/features/register.js"></script>
+    <script type="module" src="/static/js/ui/badge.js"></script>
   </body>
 </html>

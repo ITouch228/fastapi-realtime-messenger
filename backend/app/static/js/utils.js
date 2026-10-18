@@ -1,4 +1,4 @@
-export const formatTimeLocalFromUtcString = isoStr => {
+export const formatTimeLocalFromUtcString = (isoStr) => {
   // ожидаем: ISO 8601 "2024-01-01T12:00:00+00:00" или "2024-01-01T12:00:00Z"
   if (!isoStr) return '';
   const dt = new Date(isoStr);
@@ -6,12 +6,37 @@ export const formatTimeLocalFromUtcString = isoStr => {
   return dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
+export const formatLastSeen = (isoStr) => {
+  // «был(а) N назад» по ISO-строке последнего визита
+  if (!isoStr) return 'был(а) давно';
+  const dt = new Date(isoStr);
+  if (isNaN(dt.getTime())) return 'был(а) давно';
+
+  const diffSec = Math.floor((Date.now() - dt.getTime()) / 1000);
+  if (diffSec < 60) return 'был(а) только что';
+
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `был(а) ${diffMin} мин назад`;
+
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `был(а) ${diffHour} ч назад`;
+
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 7) return `был(а) ${diffDay} дн назад`;
+
+  return dt.toLocaleDateString([], {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+};
+
 export const formatLocalDateTime = (date = new Date()) => {
   if (!(date instanceof Date) || isNaN(date.getTime())) {
     console.error('Invalid date object provided:', date);
     return new Date().toISOString().replace('T', ' ').substring(0, 19);
   }
-  const pad = n => n.toString().padStart(2, '0');
+  const pad = (n) => n.toString().padStart(2, '0');
   return [
     date.getFullYear(),
     pad(date.getMonth() + 1),
@@ -22,7 +47,7 @@ export const formatLocalDateTime = (date = new Date()) => {
   ].join(' ');
 };
 
-export const getFileIcon = extension => {
+export const getFileIcon = (extension) => {
   // Sanitize extension to prevent potential injection
   if (typeof extension !== 'string') {
     return '📁'; // default icon

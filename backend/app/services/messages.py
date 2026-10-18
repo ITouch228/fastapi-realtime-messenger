@@ -1,70 +1,126 @@
-from typing import Literal
+from datetime import datetime
 
-from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dao.dao import FileDAO
-from app.schemas.file import FileInDb, FileMeta
-from app.schemas.message import MessageResponse
-from app.utils.logging_config import get_logger
+from app.dao import FileDAO, MessageDAO
+from app.exceptions import NotFoundError, PermissionDeniedError
+from app.schemas import FileInDb, FileResponse, MessageInDb, MessageResponse
+from app.utils import get_logger
 
 logger = get_logger(__name__)
 
 
-async def build_message_out(message, session: AsyncSession) -> MessageResponse:
-    """Возвращает сообщение в формате для ответа."""
-    file_meta = None
+class MessageManager:
+    """Сервис для работы с сообщениями."""
 
-    if message.message_file_id:
-        file_meta = await _resolve_file_meta(
+    @staticmethod
+    async def create(
+        session: AsyncSession,
+        chat_id: int,
+        sender_id: int,
+        text: str | None,
+        file_id: int | None,
+        sent_at: datetime,
+    ) -> MessageInDb:
+        message = await MessageDAO.add(
             session=session,
-            message_file_id=message.message_file_id,
-            message_id=message.id,
+            chat_id=chat_id,
+            sender_id=sender_id,
+            message_text=text,
+            message_file_id=file_id,
+            sent_at=sent_at,
+        )
+        return MessageInDb.model_validate(message)
+
+    @staticmethod
+    async def get_chat_messages(
+        session: AsyncSession, chat_id: int, user_id: int
+    ) -> list[MessageResponse]:
+        """Сообщения чата с проверкой доступа — чат и сообщения одним запросом."""
+        logger.info('Получение сообщений чата %s пользователем %s', chat_id, user_id)
+
+        rows = await MessageDAO.find_by_chat_with_chat(session=session, chat_id=chat_id)
+        if not rows:
+            raise NotFoundError('Чат не найден')
+
+        chat, _ = rows[0]
+        if user_id not in (chat.users or []):
+            raise PermissionDeniedError('Доступ запрещен')
+
+        messages = [
+            MessageInDb.model_validate(message)
+            for _, message in rows
+            if message is not None
+        ]
+        return await MessageManager.build_message_responses(
+            session=session, messages=messages
         )
 
-    return MessageResponse(
-        id=message.id,
-        chat_id=message.chat_id,
-        sender_id=message.sender_id,
-        message_text=message.message_text,
-        sent_at=message.sent_at,
-        message_file_id=message.message_file_id,
-        file=file_meta,
-        is_deleted=message.is_deleted,
-    )
+    @staticmethod
+    async def delete(session: AsyncSession, message_id: int, user_id: int) -> None:
+        """Мягкое удаление: проверка автора и членства в чате одним запросом."""
+        logger.info('Удаление сообщения %s пользователем %s', message_id, user_id)
 
+        row = await MessageDAO.find_with_chat_users(
+            session=session, message_id=message_id
+        )
+        if row is None:
+            raise NotFoundError('Сообщение не найдено')
 
-async def _resolve_file_meta(
-    session: AsyncSession,
-    message_file_id: int,
-    message_id: int,
-) -> FileMeta | None:
-    """Достаёт файл из БД и собирает метаданные."""
-    try:
-        file_in_db = await FileDAO.find_one_or_none(session=session, id=message_file_id)
-        if not file_in_db:
-            logger.warning(
-                'Файл %s не найден в БД для сообщения %s', message_file_id, message_id
+        message, chat_users = row
+        if message.sender_id != user_id:
+            raise PermissionDeniedError('Доступ запрещен')
+        if user_id not in (chat_users or []):
+            raise PermissionDeniedError('Доступ запрещен')
+
+        await MessageDAO.soft_delete_message(session=session, message_id=message_id)
+
+    @staticmethod
+    async def build_message_response(
+        session: AsyncSession, message: MessageInDb
+    ) -> MessageResponse:
+        responses = await MessageManager.build_message_responses(
+            session=session, messages=[message]
+        )
+        return responses[0]
+
+    @staticmethod
+    async def build_message_responses(
+        session: AsyncSession, messages: list[MessageInDb]
+    ) -> list[MessageResponse]:
+        """Собирает MessageResponse, подтягивая файлы одним запросом (без N+1)."""
+        file_ids = [m.message_file_id for m in messages if m.message_file_id]
+        files_map = await MessageManager._resolve_files_meta(
+            session=session, file_ids=file_ids
+        )
+
+        responses: list[MessageResponse] = []
+        for message in messages:
+            response = MessageResponse.model_validate(message)
+            if message.message_file_id:
+                response.file = files_map.get(message.message_file_id)
+            responses.append(response)
+
+        return responses
+
+    @staticmethod
+    async def _resolve_files_meta(
+        session: AsyncSession, file_ids: list[int]
+    ) -> dict[int, FileResponse]:
+        """Метаданные файлов по их id одним запросом."""
+        if not file_ids:
+            return {}
+
+        files = await FileDAO.find_by_ids(session=session, file_ids=file_ids)
+        result: dict[int, FileResponse] = {}
+        for file_in_db in files:
+            file = FileInDb.model_validate(file_in_db)
+            result[file.id] = FileResponse(
+                id=file.id,
+                kind='image' if file.mime_type.startswith('image/') else 'file',
+                url=f'/api/files/{file.id}',
+                mime_type=file.mime_type,
+                filename=file.original_name,
+                size=file.size_bytes,
             )
-            return None
-
-        file_db = FileInDb.model_validate(file_in_db)
-        mime_type = file_db.mime_type
-        kind: Literal['image', 'file'] = (
-            'image' if mime_type.startswith('image/') else 'file'
-        )
-
-        return FileMeta(
-            id=file_db.id,
-            kind=kind,
-            url=f'/api/files/{file_db.id}',
-            mime_type=mime_type,
-            filename=file_db.original_name,
-            size=file_db.size_bytes,
-        )
-
-    except HTTPException:
-        logger.warning(
-            'Ошибка доступа к файлу %s для сообщения %s', message_file_id, message_id
-        )
-        return None
+        return result

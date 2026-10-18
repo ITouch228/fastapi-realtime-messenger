@@ -1,4 +1,4 @@
-import api from '/static/js/api.js';
+import api from '/static/js/core/api.js';
 
 export const getCurrentUser = async () => {
   try {

@@ -1,0 +1,72 @@
+/* Бейдж-предупреждение о том, что это pet-проект для тестирования */
+
+.pet-badge {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  top: 12px;
+  left: 50%;
+  z-index: 9999;
+  padding: 10px 24px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fef3c7, #fde68a);
+  border: 1px solid #f59e0b;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  color: #92400e;
+  font-size: 13px;
+  line-height: 1.35;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  /* Сброс глобальных стилей из login.css / register.css */
+  animation: none !important;
+  pointer-events: auto;
+}
+
+.pet-badge__icon {
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+.pet-badge__text {
+  text-align: left;
+}
+
+.pet-badge__text strong {
+  font-weight: 700;
+}
+
+.pet-badge__close {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: #92400e;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+}
+
+.pet-badge__close:hover {
+  opacity: 1;
+}
+
+@media (max-width: 480px) {
+  .pet-badge {
+    font-size: 12px;
+    top: 8px;
+  }
+}

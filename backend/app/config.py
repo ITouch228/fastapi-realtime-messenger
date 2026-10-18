@@ -1,3 +1,4 @@
+from functools import cached_property
 from pathlib import Path
 from typing import Literal
 
@@ -7,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 BASE_DIR = Path(__file__).resolve().parents[1]
 STATIC_DIR = BASE_DIR / 'app' / 'static'
 TEMPLATES_DIR = BASE_DIR / 'app' / 'templates'
-FILES_ROOT = STATIC_DIR / 'files'
+FILES_ROOT = BASE_DIR / 'uploads'
 LOGS_DIR = BASE_DIR / 'logs'
 
 
@@ -45,11 +46,11 @@ class Settings(BaseSettings):
             f'{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}'
         )
 
-    @property
+    @cached_property
     def PRIVATE_KEY(self) -> str:
         return self.PRIVATE_KEY_PATH.read_text(encoding='utf-8')
 
-    @property
+    @cached_property
     def PUBLIC_KEY(self) -> str:
         return self.PUBLIC_KEY_PATH.read_text(encoding='utf-8')
 

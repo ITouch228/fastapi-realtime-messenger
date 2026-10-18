@@ -58,6 +58,7 @@ services:
       - ./backend:/app
       - ./backend/app/static:/app/app/static
       - ./backend/app/templates:/app/app/templates
+      - uploads_data:/app/uploads
     ports:
       - '8000:8000'
     networks:
@@ -65,6 +66,7 @@ services:
 
 volumes:
   pg_data:
+  uploads_data:
 
 networks:
   internal:

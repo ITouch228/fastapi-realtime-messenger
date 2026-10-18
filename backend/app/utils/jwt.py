@@ -1,9 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
 from jose import jwt
+from jose.exceptions import ExpiredSignatureError, JWTError
 
 from app.config import settings
-from app.utils.logging_config import get_logger
+from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -50,10 +51,10 @@ def verify_token(token: str, token_type: str = 'access') -> str | None:
         if session_id is None:
             return None
         return str(session_id)
-    except jwt.ExpiredSignatureError:
+    except ExpiredSignatureError:
         logger.warning('Токен истёк')
         return None
-    except jwt.JWTError:
+    except JWTError:
         logger.exception('Ошибка JWT')
         return None
     except (ValueError, TypeError):

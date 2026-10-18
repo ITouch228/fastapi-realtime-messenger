@@ -1,5 +1,5 @@
 .PHONY: help build up down down-v restart logs
-.PHONY: migrate lint lint-fix format check quality
+.PHONY: migrate lint lint-front lint-back lint-fix format format-front format-back check quality
 
 # ========================================
 # DOCKER COMMANDS
@@ -33,56 +33,53 @@ migrate:
 	docker-compose exec backend alembic upgrade head
 
 # ========================================
-# LINTING & CODE QUALITY (ruff + mypy)
+# LINTING & CODE QUALITY (ruff + mypy + eslint + prettier)
 # ========================================
 
-lint:
+lint-back:
 	@echo "Ruff (lint)..."
 	cd backend && ruff check .
-	@echo "Ruff (format)..."
+	@echo "Ruff (format check)..."
 	cd backend && ruff format --check .
 	@echo "Mypy..."
 	cd backend && mypy --package app
 
+lint-front:
+	@echo "ESLint..."
+	npx eslint backend/app/static/js
+	@echo "Prettier (check)..."
+	npx prettier --check "backend/app/static/**/*.{js,css,html}"
+
+lint: lint-back lint-front
+
 lint-fix:
+	@echo "Ruff check --fix..."
+	cd backend && ruff check --fix .
+	@echo "Ruff format..."
+	cd backend && ruff format .
+	@echo "ESLint --fix..."
+	npx eslint --fix backend/app/static/js
+	@echo "Prettier --write..."
+	npx prettier --write "backend/app/static/**/*.{js,css,html}"
+
+# ========================================
+# FORMATTING
+# ========================================
+
+format-back:
 	cd backend && ruff check --fix .
 	cd backend && ruff format .
 
-format:
-	cd backend && ruff check --fix .
-	cd backend && ruff format .
+format-front:
+	npx prettier --write "backend/app/static/**/*.{js,css,html}"
+
+format: format-back format-front
 
 # ========================================
-# QUALITY REPORT (ruff + mypy with logs)
+# QUALITY (формат + проверка)
 # ========================================
 
-quality:
-	cd backend && python tools/quality.py
+check: format lint
 
-# ========================================
-# HELP (default)
-# ========================================
-
-help:
-	@echo "Available commands:"
-	@echo ""
-	@echo "DOCKER:"
-	@echo "  build          Build and run containers (with logs)"
-	@echo "  up             Run containers in background"
-	@echo "  down           Stop containers"
-	@echo "  down-v         Stop containers and remove volumes"
-	@echo "  restart        Restart containers"
-	@echo "  logs           Show container logs"
-	@echo ""
-	@echo "ALEMBIC:"
-	@echo "  migrate        Apply migrations"
-	@echo ""
-	@echo "LINTING:"
-	@echo "  lint           Run all linters (ruff + mypy)"
-	@echo "  lint-fix       Auto-fix errors"
-	@echo "  format         Format all code"
-	@echo ""
-	@echo "QUALITY:"
-	@echo "  quality        Full quality report with logs"
-
-.DEFAULT_GOAL := help
+quality: check
+	@echo "All checks passed."

@@ -4,15 +4,29 @@ const api = axios.create({
   withCredentials: true,
 });
 
-// отдельный клиент для refresh/logout без интерсепторов (чтобы не было циклов)
+// отдельный клиент для refresh/logout без refresh-интерсептора (чтобы не было циклов)
 const authApi = axios.create({
   baseURL: '/api',
   withCredentials: true,
 });
 
+// authApi тоже шлёт CSRF-токен (для refresh/logout)
+authApi.interceptors.request.use((config) => {
+  const token = getCsrfToken();
+  if (token) {
+    config.headers['X-CSRF-Token'] = token;
+  }
+  return config;
+});
+
 let isRefreshing = false;
 let refreshPromise = null;
 let queue = [];
+
+function getCsrfToken() {
+  const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]*)/);
+  return match ? match[1] : '';
+}
 
 function flushQueue(err) {
   const pending = queue;
@@ -43,10 +57,9 @@ async function hardLogout() {
   window.location.href = '/auth/login';
 }
 
-// Response interceptor
 api.interceptors.response.use(
-  res => res,
-  async err => {
+  (res) => res,
+  async (err) => {
     // network error
     if (!err.response) return Promise.reject(err);
 
@@ -57,7 +70,11 @@ api.interceptors.response.use(
     if (status !== 401) return Promise.reject(err);
 
     // не пытаться рефрешить auth-роуты
-    const url = original?.url || '';
+    // TODO: [SMELL] isAuthRoute проверкой по строке URL — хрупко.
+    // Лучше вынести список маршрутов в константу или проверять по original.url
+    // через реестр routes.
+    // docs/architecture.md §5: 🟢 auth route check по строке
+    const url = original.url || '';
     const isAuthRoute =
       url.includes('/auth/refresh') ||
       url.includes('/auth/login') ||
@@ -93,5 +110,14 @@ api.interceptors.response.use(
     }
   },
 );
+
+// CSRF: шлём X-CSRF-Token из куки на каждый запрос
+api.interceptors.request.use((config) => {
+  const token = getCsrfToken();
+  if (token) {
+    config.headers['X-CSRF-Token'] = token;
+  }
+  return config;
+});
 
 export default api;

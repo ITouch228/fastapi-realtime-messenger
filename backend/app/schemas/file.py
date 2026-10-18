@@ -1,14 +1,11 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
+
+from app.schemas.base import BaseDBSchema, IDMixin
 
 
-class FileCreate(BaseModel):
-    file_path: str = Field(...)
-
-
-class FileInDb(BaseModel):
-    id: int
+class FileInDb(BaseDBSchema):
     file_path: str
     owner_id: int
     original_name: str
@@ -18,8 +15,7 @@ class FileInDb(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class FileMeta(BaseModel):
-    id: int
+class FileResponse(IDMixin, BaseModel):
     kind: Literal['image', 'file']
     url: str
     mime_type: str

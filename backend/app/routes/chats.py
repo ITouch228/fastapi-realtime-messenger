@@ -1,42 +1,29 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
-from app.schemas.user import UserResponse
-from app.services.auth import get_current_user
-from app.services.chats import (
-    delete_chat_in_db,
-    get_chat_by_user_ids_in_db,
-    get_chat_in_db,
-    get_user_chats_in_db,
-)
-from app.utils.logging_config import get_logger
-
-logger = get_logger(__name__)
-
+from app.schemas import ChatResponse, UserResponse
+from app.services import AuthManager, ChatManager
+from app.utils import require_csrf
 
 router = APIRouter(prefix='/chats')
 
 
-@router.get('')
+@router.get('', response_model=list[ChatResponse])
 async def get_user_chats(
-    current_user: UserResponse = Depends(get_current_user),
+    current_user: UserResponse = Depends(AuthManager.get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    logger.info('Загрузка чатов пользователя с ID: %s', current_user.id)
-
-    return await get_user_chats_in_db(current_user.id, session=session)
+    return await ChatManager.get_by_user(user_id=current_user.id, session=session)
 
 
-@router.get('/direct/{target_id}')
+@router.get('/direct/{target_id}', response_model=ChatResponse | None)
 async def get_chat_by_user_ids(
     target_id: int,
-    current_user: UserResponse = Depends(get_current_user),
+    current_user: UserResponse = Depends(AuthManager.get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    logger.info('Загрузка чата пользователей с ID: %s %s', current_user.id, target_id)
-
-    return await get_chat_by_user_ids_in_db(
+    return await ChatManager.get_by_users(
         user_a_id=current_user.id,
         user_b_id=target_id,
         session=session,
@@ -46,19 +33,9 @@ async def get_chat_by_user_ids(
 @router.delete('/{chat_id}', status_code=status.HTTP_204_NO_CONTENT)
 async def delete_chat(
     chat_id: int,
-    current_user: UserResponse = Depends(get_current_user),
+    current_user: UserResponse = Depends(AuthManager.get_current_user),
     session: AsyncSession = Depends(get_session),
+    _: None = Depends(require_csrf),
 ):
-    chat = await get_chat_in_db(session=session, chat_id=chat_id)
-    if not chat:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='Чат не найден'
-        )
-
-    if current_user.id not in (chat.users or []):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail='Доступ запрещен'
-        )
-
-    await delete_chat_in_db(session=session, chat_id=chat_id)
-    logger.info('Удаление чата с ID: %s', chat_id)
+    await ChatManager.delete(chat_id=chat_id, user_id=current_user.id, session=session)
+    await session.commit()

@@ -7,9 +7,19 @@
     <audio id="NotifySound" src="/static/sounds/notify.mp3"></audio>
     <link rel="icon" href="/static/images/favicon.ico" type="image/x-icon" />
     <link href="/static/css/index.css" rel="stylesheet" />
+    <link href="/static/css/badge.css" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
   </head>
   <body>
+    <div class="pet-badge">
+      <span class="pet-badge__icon">🧪</span>
+      <span class="pet-badge__text">
+        <strong>Pet-проект</strong> — только для тестирования функционала.<br />
+        Не вводите личные и конфиденциальные данные.
+      </span>
+      <button class="pet-badge__close" type="button" aria-label="Закрыть">✕</button>
+    </div>
+
     <div class="sidebar">
       <div class="user-info">
         <div class="user-avatar"></div>
@@ -101,11 +111,7 @@
       </div>
     </div>
 
-    <script type="module" src="/static/js/state.js"></script>
-    <script type="module" src="/static/js/auth.js"></script>
-    <script type="module" src="/static/js/messages.js"></script>
-    <script type="module" src="/static/js/messageHandler.js"></script>
-    <script type="module" src="/static/js/utils.js"></script>
-    <script type="module" src="/static/js/main.js"></script>
+    <script type="module" src="/static/js/app.js"></script>
+    <script type="module" src="/static/js/ui/badge.js"></script>
   </body>
 </html>

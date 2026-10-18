@@ -1,5 +1,3 @@
-"""Общие зависимости"""
-
 from passlib.context import CryptContext
 from starlette.templating import Jinja2Templates
 
