@@ -1,15 +1,12 @@
-from collections.abc import Sequence
-from typing import Any, Generic, TypeVar, cast
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import Base
 
-ModelT = TypeVar('ModelT', bound=Base)
 
-
-class BaseDAO(Generic[ModelT]):
+class BaseDAO[ModelT: Base]:
     model: type[ModelT]
 
     @classmethod
@@ -28,20 +25,4 @@ class BaseDAO(Generic[ModelT]):
     ) -> ModelT | None:
         stmt = select(cls.model).filter_by(**filter_by)
         result = await session.execute(stmt)
-        return cast(ModelT | None, result.scalar_one_or_none())
-
-    @classmethod
-    async def find_all(
-        cls,
-        session: AsyncSession,
-        limit: int | None = None,
-        offset: int = 0,
-        **filter_by: Any,
-    ) -> Sequence[ModelT]:
-        # TODO: [SMELL] find_all без order_by → неопределённый порядок.
-        # docs/architecture.md §5: 🟢 find_all без order_by
-        stmt = select(cls.model).filter_by(**filter_by).offset(offset)
-        if limit is not None:
-            stmt = stmt.limit(limit)
-        result = await session.execute(stmt)
-        return cast(Sequence[ModelT], result.scalars().all())
+        return result.scalar_one_or_none()

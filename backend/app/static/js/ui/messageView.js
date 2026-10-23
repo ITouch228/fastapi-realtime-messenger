@@ -2,16 +2,9 @@ import api from '/static/js/core/api.js';
 import store from '/static/js/core/store.js';
 import { formatTimeLocalFromUtcString, getFileIcon } from '/static/js/utils.js';
 import { imageObserver } from '/static/js/ui/imageLoader.js';
+import { IMAGE_PLACEHOLDER } from '/static/js/core/constants.js';
 
 const messagesContainer = document.getElementById('messages');
-
-// TODO: [SMELL] IMAGE_PLACEHOLDER захардкожен — вынести в constants.
-// docs/architecture.md §5: 🟢 IMAGE_PLACEHOLDER захардкожен
-const IMAGE_PLACEHOLDER = `
-  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E
-      %3Crect width='100' height='100' fill='%23f5f5f5'/%3E
-      %3Ctext x='50' y='50' font-family='Arial' font-size='10' text-anchor='middle' fill='%23ccc'%3EImage%3C/text%3E
-  %3C/svg%3E") no-repeat center/contain`;
 
 // ─── Фабрика элемента сообщения ────────────────────────────────
 

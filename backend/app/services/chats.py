@@ -1,7 +1,9 @@
+from datetime import datetime
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dao import ChatDAO, MessageDAO
-from app.exceptions import NotFoundError, PermissionDeniedError
+from app.exceptions import BadRequestError, NotFoundError, PermissionDeniedError
 from app.schemas import ChatInDb, ChatResponse
 from app.services.users import UserManager
 from app.services.websocket_manager import manager
@@ -18,9 +20,33 @@ def _peer_id(chat_users: list[int] | None, user_id: int) -> int | None:
     return None
 
 
-# TODO: [DUP] last_message ('Удалено' / 'Файл') продублирован в get_by_user
-# и get_by_users — вынести в общий _build_chat_response(chat, last_message, peer).
-# docs/architecture.md §5: 🟡 дублирование сборки ChatResponse
+def _build_chat_response(
+    chat,
+    last_message: tuple[str | None, datetime | None, bool] | None,
+    peer_id: int | None,
+    last_seen: datetime | None,
+) -> ChatResponse:
+    """Собирает ChatResponse из ORM-чата, кортежа последнего сообщения и данных peer.
+
+    Единая точка для get_by_user и get_by_users — раньше логика 'Удалено'/'Файл'
+    и проставления peer_* была продублирована в обоих методах.
+    """
+    response = ChatResponse.model_validate(chat)
+
+    if last_message is not None:
+        text, sent_at, is_deleted = last_message
+        if is_deleted:
+            text = 'Удалено'
+        elif not text:
+            text = 'Файл'
+        response.last_message = text
+        response.last_message_sent_at = sent_at
+
+    if peer_id is not None:
+        response.peer_online = manager.is_online(peer_id)
+        response.peer_last_seen = last_seen
+
+    return response
 
 
 class ChatManager:
@@ -32,8 +58,23 @@ class ChatManager:
         user_a_id: int,
         user_b_id: int,
     ) -> ChatInDb:
+        if user_a_id == user_b_id:
+            raise BadRequestError(detail='Нельзя создать чат с самим собой')
+
+        # Собеседник должен существовать и быть активным — иначе в БД
+        # остаётся «битый» чат с недоступным участником
+        try:
+            peer = await UserManager.get(session=session, user_id=user_b_id)
+        except NotFoundError:
+            raise NotFoundError(detail='Собеседник не найден') from None
+        if not peer.is_active:
+            raise NotFoundError(detail='Собеседник не найден')
+
         logger.info('Создание чата между пользователями: %s и %s', user_a_id, user_b_id)
-        chat = await ChatDAO.add(session=session, users=[user_a_id, user_b_id])
+        # Детерминированный порядок [min, max]: один и тот же диалог хранится
+        # одинаково (contains-поиск порядка не требует, но нормализация нужна
+        # для будущего unique-индекса и предсказуемых данных)
+        chat = await ChatDAO.add(session=session, users=sorted([user_a_id, user_b_id]))
         return ChatInDb.model_validate(chat)
 
     @staticmethod
@@ -66,28 +107,9 @@ class ChatManager:
         result: list[ChatResponse] = []
         for chat in chats:
             last_message = last_messages.get(chat.id)
-            if last_message is None:
-                last_message_text = None
-                last_message_sent_at = None
-            else:
-                text, sent_at, is_deleted = last_message
-                if is_deleted:
-                    text = 'Удалено'
-                elif not text:
-                    text = 'Файл'
-                last_message_text = text
-                last_message_sent_at = sent_at
-
-            chat_response = ChatResponse.model_validate(chat)
-            chat_response.last_message = last_message_text
-            chat_response.last_message_sent_at = last_message_sent_at
-
             peer = _peer_id(chat.users, user_id)
-            if peer is not None:
-                chat_response.peer_online = manager.is_online(peer)
-                chat_response.peer_last_seen = last_seen_map.get(peer)
-
-            result.append(chat_response)
+            last_seen = last_seen_map.get(peer) if peer else None
+            result.append(_build_chat_response(chat, last_message, peer, last_seen))
 
         return result
 
@@ -112,28 +134,11 @@ class ChatManager:
             else {}
         ).get(chat.id)
 
-        if last_message is None:
-            last_message_text = None
-            last_message_sent_at = None
-        else:
-            text, sent_at, is_deleted = last_message
-            if is_deleted:
-                text = 'Удалено'
-            elif not text:
-                text = 'Файл'
-            last_message_text = text
-            last_message_sent_at = sent_at
+        last_seen = (await UserManager.get_last_seen_map(session, [user_b_id])).get(
+            user_b_id
+        )
 
-        chat_response = ChatResponse.model_validate(chat)
-        chat_response.last_message = last_message_text
-        chat_response.last_message_sent_at = last_message_sent_at
-
-        chat_response.peer_online = manager.is_online(user_b_id)
-        chat_response.peer_last_seen = (
-            await UserManager.get_last_seen_map(session, [user_b_id])
-        ).get(user_b_id)
-
-        return chat_response
+        return _build_chat_response(chat, last_message, user_b_id, last_seen)
 
     @staticmethod
     async def delete(chat_id: int, user_id: int, session: AsyncSession) -> None:

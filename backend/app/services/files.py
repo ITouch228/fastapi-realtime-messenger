@@ -1,12 +1,12 @@
-import os
-
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import FILES_ROOT
 from app.dao import ChatDAO, FileDAO, MessageDAO
-from app.exceptions import AppError, BadRequestError, NotFoundError
+from app.exceptions import AppError, BadRequestError, ConflictError, NotFoundError
 from app.schemas import FileInDb, UserResponse
 from app.utils import get_logger
+from app.utils.validators import validate_file_name
 
 logger = get_logger(__name__)
 
@@ -24,40 +24,45 @@ class FileManager:
     ) -> FileInDb:
         logger.info('Добавление файла в БД: чат %s, файл %s', chat_id, file_name)
 
-        if '..' in file_name or file_name.startswith('/'):
-            raise BadRequestError('Некорректное имя файла')
+        validate_file_name(file_name)
 
         if chat_id < 0:
             raise BadRequestError('Некорректный ID чата')
 
         rel_path = f'{chat_id}/{file_name}'
         abs_path = (FILES_ROOT / rel_path).resolve()
-
-        if os.path.exists(abs_path):
-            file = await FileDAO.find_one_or_none(session=session, file_path=rel_path)
-            if file:
-                return FileInDb.model_validate(file)
+        if not abs_path.is_relative_to(FILES_ROOT.resolve()):
+            raise BadRequestError('Некорректный путь файла')
 
         try:
-            new_file = await FileDAO.add(
-                session=session,
-                file_path=rel_path,
-                owner_id=owner_id,
-                original_name=original_name,
-                mime_type=mime_types,
-                size_bytes=size_bytes,
-            )
+            # Savepoint: при коллизии уникального file_path откатывается только
+            # этот INSERT, основная транзакция (чат/сообщение) остаётся живой
+            async with session.begin_nested():
+                new_file = await FileDAO.add(
+                    session=session,
+                    file_path=rel_path,
+                    owner_id=owner_id,
+                    original_name=original_name,
+                    mime_type=mime_types,
+                    size_bytes=size_bytes,
+                )
             logger.info('Файл успешно добавлен: чат %s, файл %s', chat_id, file_name)
             return FileInDb.model_validate(new_file)
+        except IntegrityError:
+            # Гонка: параллельная загрузка того же пути уже создала запись —
+            # возвращаем её (тот же дедуп, что и при os.path.exists выше)
+            existing = await FileDAO.find_one_or_none(
+                session=session, file_path=rel_path
+            )
+            if existing is not None:
+                return FileInDb.model_validate(existing)
+            logger.exception('Ошибка целостности при добавлении файла: %s', file_name)
+            raise ConflictError('Файл уже зарегистрирован') from None
         except AppError:
             raise
-        except Exception:
-            # TODO: [SMELL] except Exception — ловит всё, включая OperationalError
-            # (БД недоступна) и превращает в BadRequestError (400). Логично ловить
-            # IntegrityError → ConflictError, остальное — AppError (500).
-            # docs/architecture.md §5: 🟢 except Exception в FileManager.create
-            logger.exception('Ошибка при добавлении файла: %s', file_name)
-            raise BadRequestError('Ошибка регистрации файла')
+        except SQLAlchemyError:
+            logger.exception('Ошибка БД при регистрации файла: %s', file_name)
+            raise AppError(detail='Ошибка регистрации файла') from None
 
     @staticmethod
     async def get(session: AsyncSession, file_id: int) -> FileInDb | None:

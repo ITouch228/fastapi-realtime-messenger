@@ -8,9 +8,10 @@ from fastapi.responses import Response
 from PIL import Image
 from starlette.concurrency import run_in_threadpool
 
-from app.config import FILES_ROOT
+from app.config import FILES_ROOT, settings
 from app.exceptions import AppError, BadRequestError, PayloadTooLargeError
 from app.utils.logging import get_logger
+from app.utils.validators import validate_file_name
 
 logger = get_logger(__name__)
 
@@ -21,9 +22,12 @@ def resolve_file_path(db_path: str) -> Path | None:
     if not db_path:
         return None
 
-    file_path = (FILES_ROOT / db_path).resolve()
+    root = FILES_ROOT.resolve()
+    file_path = (root / db_path).resolve()
 
-    if not str(file_path).startswith(str(FILES_ROOT)):
+    # is_relative_to вместо startswith: строковый preфикс пропускал
+    # соседние каталоги-«близяты» (uploads/ vs uploads_evil/)
+    if not file_path.is_relative_to(root):
         return None
 
     if not file_path.exists():
@@ -77,8 +81,10 @@ def render_image_response(
                     'Vary': 'Accept',
                 },
             )
-    except Exception:
-        logger.exception('Ошибка при загрузке изображения')
+    except OSError:
+        # Ошибки при чтении/записи файлов — не логируем как exceptions,
+        # так как это может быть просто битый файл, а не сбой сервера
+        logger.warning('Ошибка при загрузке изображения: %s', file_path)
         return None
 
 
@@ -98,59 +104,52 @@ def compress_image_sync(image_bytes: bytes, quality: int = 85) -> bytes:
             if fmt == 'PNG':
                 # PNG остаётся без потерь, но с оптимизацией палитры/IDAT.
                 img.save(output, format='PNG', optimize=True)
+            # JPEG/WEBP/bmp: lossy WebP даёт лучший баланс размера и качества.
+            elif img.mode not in ('RGB', 'RGBA'):
+                img.convert('RGB').save(
+                    output, format='WEBP', quality=quality, method=4
+                )
             else:
-                # JPEG/WEBP/bmp: lossy WebP даёт лучший баланс размера и качества.
-                if img.mode not in ('RGB', 'RGBA'):
-                    img.convert('RGB').save(
-                        output, format='WEBP', quality=quality, method=4
-                    )
                 img.save(output, format='WEBP', quality=quality, method=4)
 
             compressed = output.getvalue()
             return compressed if len(compressed) < len(image_bytes) else image_bytes
     except Image.DecompressionBombError:
         raise
+    except OSError:
+        # Ошибки при работе с файловой системой — не логируем как exceptions
+        logger.warning('Ошибка при сжатии изображения')
+        return image_bytes
     except Exception:
-        logger.exception('Ошибка сжатия изображения')
+        # Прочие ошибки Pillow — логируем, возвращаем оригинал
+        logger.exception('Ошибка Pillow при сжатии изображения')
         return image_bytes
 
 
-async def save_file(chat_id: int, file_name: str, file_content: bytes) -> bool:
+async def save_file(chat_id: int, file_name: str, file_content: bytes) -> None:
     if chat_id < 0:
         raise BadRequestError(detail='Некорректный ID чата')
 
-    if '..' in file_name or file_name.startswith('/'):
-        raise BadRequestError(detail='Некорректное имя файла')
+    # validate_file_name: отклоняет разделители путей (в т.ч. обратную косую
+    # черту Windows), управляющие символы, '.'/'..'; проверка '..' in name
+    # сама по себе была неполной
+    validate_file_name(file_name)
 
     if len(file_content) == 0:
         raise BadRequestError(detail='Пустое содержимое файла')
 
-    allowed_extensions = [
-        '.jpg',
-        '.jpeg',
-        '.png',
-        '.gif',
-        '.webp',
-        '.txt',
-        '.pdf',
-        '.doc',
-        '.docx',
-        '.xls',
-        '.xlsx',
-        '.csv',
-    ]
     file_ext = os.path.splitext(file_name)[1].lower()
-    if file_ext not in allowed_extensions:
+    if file_ext not in settings.ALLOWED_FILE_EXTENSIONS:
         raise BadRequestError(detail='Недопустимый тип файла')
 
-    if len(file_content) > 10 * 1024 * 1024:
+    if len(file_content) > settings.MAX_FILE_SIZE:
         raise PayloadTooLargeError(detail='Файл слишком большой')
 
     rel_path = f'{chat_id}/{file_name}'
 
     abs_path = (FILES_ROOT / rel_path).resolve()
 
-    if not str(abs_path).startswith(str(FILES_ROOT.resolve())):
+    if not abs_path.is_relative_to(FILES_ROOT.resolve()):
         raise BadRequestError(detail='Некорректный путь файла')
 
     try:
@@ -174,10 +173,8 @@ async def save_file(chat_id: int, file_name: str, file_content: bytes) -> bool:
 
         async with aiofiles.open(abs_path, 'wb') as f:
             await f.write(file_content)
-
-        return True
     except AppError:
         raise
-    except Exception:
+    except OSError as exc:
         logger.exception('Ошибка сохранения файла: %s', file_name)
-        return False
+        raise AppError(detail='Не удалось сохранить файл') from exc

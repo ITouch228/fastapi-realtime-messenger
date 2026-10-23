@@ -1,3 +1,5 @@
+import { getCsrfToken } from '../core/api.js';
+
 const form = document.getElementById('loginForm');
 const message = document.getElementById('message');
 
@@ -18,7 +20,10 @@ form.addEventListener('submit', async (e) => {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': getCsrfToken(),
+      },
       body: JSON.stringify(payload),
     });
 

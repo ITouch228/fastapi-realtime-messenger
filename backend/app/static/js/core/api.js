@@ -23,7 +23,7 @@ let isRefreshing = false;
 let refreshPromise = null;
 let queue = [];
 
-function getCsrfToken() {
+export function getCsrfToken() {
   const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]*)/);
   return match ? match[1] : '';
 }
@@ -70,15 +70,8 @@ api.interceptors.response.use(
     if (status !== 401) return Promise.reject(err);
 
     // не пытаться рефрешить auth-роуты
-    // TODO: [SMELL] isAuthRoute проверкой по строке URL — хрупко.
-    // Лучше вынести список маршрутов в константу или проверять по original.url
-    // через реестр routes.
-    // docs/architecture.md §5: 🟢 auth route check по строке
     const url = original.url || '';
-    const isAuthRoute =
-      url.includes('/auth/refresh') ||
-      url.includes('/auth/login') ||
-      url.includes('/auth/logout');
+    const isAuthRoute = /^\/auth\/(refresh|login|logout)(\/|$)/.test(url);
 
     if (isAuthRoute) return Promise.reject(err);
 

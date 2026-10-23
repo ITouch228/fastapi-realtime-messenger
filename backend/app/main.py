@@ -11,10 +11,11 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from app.config import FILES_ROOT, STATIC_DIR
+from app.config import FILES_ROOT, STATIC_DIR, settings
+from app.database import engine
 from app.exceptions import register_exception_handlers
 from app.routes import auth, chats, files, messages, pages, users, ws
-from app.services import close_redis, rate_limiter
+from app.services import close_redis, init_redis, rate_limiter
 from app.utils import get_logger, setup_logging
 
 setup_logging()
@@ -24,8 +25,10 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     FILES_ROOT.mkdir(parents=True, exist_ok=True)
+    await init_redis()
     yield
     await close_redis()
+    await engine.dispose()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -48,15 +51,7 @@ app.include_router(ws.router, prefix='/api')
 
 app.add_middleware(
     CORSMiddleware,
-    # TODO: [CONFIG] Origins захардкожены — вынести в settings.ALLOWED_ORIGINS (list[str]).
-    # docs/architecture.md §5: 🟢 CORS origins захардкожены
-    allow_origins=[
-        'http://localhost:8000',
-        'http://127.0.0.1:8000',
-        'https://localhost:8000',
-        'https://127.0.0.1:8000',
-        'https://itmessage.itouch.pw',
-    ],
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allow_headers=['*'],

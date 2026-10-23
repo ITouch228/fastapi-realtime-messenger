@@ -18,7 +18,7 @@ class UserInDB(BaseDBSchema, UserBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-class UserCreate(UserBase):
+class UserRegister(UserBase):
     password: str = Field(...)
 
     @field_validator('email', mode='before')
@@ -29,8 +29,6 @@ class UserCreate(UserBase):
     @field_validator('username', mode='before')
     @classmethod
     def strip_username(cls, v: str) -> str:
-        # TODO: trim дублируется на уровне схемы и DAO — оставить только в одном месте
-        # docs/data_flow.md §1d: B4 — trim дважды: схема + DAO
         return v.strip() if isinstance(v, str) else v
 
     @field_validator('username')

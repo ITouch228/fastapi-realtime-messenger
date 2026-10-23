@@ -13,6 +13,14 @@ def get_access_token_from_cookie(
     return access
 
 
+def get_refresh_token_from_cookie(
+    refresh: str | None = Cookie(default=None, alias='refresh'),
+):
+    if not refresh:
+        return None
+    return refresh
+
+
 def set_tokens_to_response_cookie(
     response: Response, access_token, refresh_token, csrf_token: str | None = None
 ):

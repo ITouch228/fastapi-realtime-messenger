@@ -12,6 +12,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def app_error_handler(_: Request, exc: AppError) -> JSONResponse:
         if exc.status_code >= 500:
             logger.error('Внутренняя ошибка приложения: %s', exc.detail)
+        elif exc.status_code >= 400:
+            logger.warning('Клиентская ошибка %d: %s', exc.status_code, exc.detail)
         return JSONResponse(
             status_code=exc.status_code,
             content={'detail': exc.detail},

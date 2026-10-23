@@ -20,6 +20,6 @@ class FileResponse(IDMixin, BaseModel):
     url: str
     mime_type: str
     filename: str
-    size: int | None = None
+    size: int
 
     model_config = ConfigDict(from_attributes=True)

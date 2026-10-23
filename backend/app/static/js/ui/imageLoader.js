@@ -1,6 +1,4 @@
-// TODO: [SMELL] IMAGE_LOAD_TIMEOUT захардкожен — вынести в constants.
-// docs/architecture.md §5: 🟢 IMAGE_LOAD_TIMEOUT захардкожен
-const IMAGE_LOAD_TIMEOUT = 10000; // 10 секунд таймаут
+import { IMAGE_LOAD_TIMEOUT } from '/static/js/core/constants.js';
 
 const messagesContainer = document.getElementById('messages');
 
@@ -23,7 +21,6 @@ async function loadImageWithAuth(url, container) {
       },
       credentials: 'include',
       signal: controller.signal,
-      priority: 'high',
     });
 
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

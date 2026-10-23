@@ -36,11 +36,49 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = Field(default=True)
     COOKIE_SAMESITE: Literal['lax', 'strict', 'none'] = Field(default='lax')
 
+    # CORS
+    ALLOWED_ORIGINS: list[str] = Field(
+        default=[
+            'http://localhost:8000',
+            'http://127.0.0.1:8000',
+            'https://localhost:8000',
+            'https://127.0.0.1:8000',
+            'https://itmessage.itouch.pw',
+        ]
+    )
+
+    # Rate limits
+    REGISTER_RATE_LIMIT: str = Field(default='10/hour')
+    LOGIN_RATE_LIMIT: str = Field(default='5/minute')
+
+    # Messages
+    MAX_MESSAGE_LENGTH: int = Field(default=10000)
+
+    # Files
+    MAX_FILE_SIZE: int = Field(default=10 * 1024 * 1024)
+    ALLOWED_FILE_EXTENSIONS: set[str] = Field(
+        default={
+            '.jpg',
+            '.jpeg',
+            '.png',
+            '.gif',
+            '.webp',
+            '.txt',
+            '.pdf',
+            '.doc',
+            '.docx',
+            '.xls',
+            '.xlsx',
+            '.csv',
+        }
+    )
+
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / 'app' / '.env', env_file_encoding='utf-8', extra='ignore'
     )
 
-    def get_db_url(self):
+    @property
+    def db_url(self) -> str:
         return (
             f'postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@'
             f'{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}'
@@ -48,11 +86,25 @@ class Settings(BaseSettings):
 
     @cached_property
     def PRIVATE_KEY(self) -> str:
-        return self.PRIVATE_KEY_PATH.read_text(encoding='utf-8')
+        try:
+            return self.PRIVATE_KEY_PATH.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            raise RuntimeError(
+                f'RSA private key не найден: {self.PRIVATE_KEY_PATH}. '
+                'Сгенерируйте ключи: openssl genpkey -algorithm RSA '
+                f'-out {self.PRIVATE_KEY_PATH} -pkeyopt rsa_keygen_bits:2048'
+            ) from None
 
     @cached_property
     def PUBLIC_KEY(self) -> str:
-        return self.PUBLIC_KEY_PATH.read_text(encoding='utf-8')
+        try:
+            return self.PUBLIC_KEY_PATH.read_text(encoding='utf-8')
+        except FileNotFoundError:
+            raise RuntimeError(
+                f'RSA public key не найден: {self.PUBLIC_KEY_PATH}. '
+                'Сгенерируйте ключи: openssl genpkey -algorithm RSA '
+                f'-out {self.PRIVATE_KEY_PATH} -pkeyopt rsa_keygen_bits:2048'
+            ) from None
 
 
 settings = Settings()

@@ -28,11 +28,7 @@ async def notify_online(user_id: int, session: AsyncSession) -> None:
 async def notify_offline(user_id: int, session: AsyncSession) -> None:
     last_seen = datetime.now(UTC)
     await UserManager.set_last_seen(session=session, user_id=user_id, when=last_seen)
-    await session.commit()
 
-    # TODO: [PERF] notify_offline делает 2 DB-запроса (set_last_seen + commit),
-    # затем для каждого peer — send_personal_message (потенциально N запросов).
-    # Можно объединить в одну транзакцию.
     await _send_to_peers(
         user_id,
         {
@@ -43,3 +39,5 @@ async def notify_offline(user_id: int, session: AsyncSession) -> None:
         },
         session,
     )
+
+    await session.commit()

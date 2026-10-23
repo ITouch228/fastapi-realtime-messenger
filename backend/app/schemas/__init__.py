@@ -4,9 +4,9 @@ from app.schemas.file import FileInDb, FileResponse
 from app.schemas.message import MessageInDb, MessageResponse
 from app.schemas.user import (
     UserBase,
-    UserCreate,
     UserInDB,
     UserLogin,
+    UserRegister,
     UserResponse,
 )
 
@@ -21,7 +21,7 @@ __all__ = [
     'MessageResponse',
     'TimestampMixin',
     'UserBase',
-    'UserCreate',
+    'UserRegister',
     'UserInDB',
     'UserLogin',
     'UserResponse',

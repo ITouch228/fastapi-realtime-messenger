@@ -1,7 +1,7 @@
 # Архитектура ITMessage
 
-> Все эндпоинты, слои, данные и проблемы.
-> Цвета: ✅ работает | 🟢 косметика (отложено) | 🟡 недоработка | 🔴 баг/риск | ⚫ мёртвый код
+> Все эндпоинты, слои, данные.
+> Открытые задачи — в [TODO.md](TODO.md). Закрытые — в [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -40,7 +40,7 @@ graph LR
         CMGR[ChatManager<br/>✅ create/get/by_user/delete]
         MMGR[MessageManager<br/>✅ create/get_chat_messages/<br/>delete/build_response]
         FMGR[FileManager<br/>✅]
-        WSMGR[WebSocketManager<br/>🟢 except Exception (M7)]
+        WSMGR[WebSocketManager<br/>✅ M7 закрыт]
     end
 
     subgraph DAO["DAO / PostgreSQL"]
@@ -142,9 +142,9 @@ graph LR
     end
 
     subgraph MESSAGES["Messages"]
-        M1[GET /api/messages/id<br/>✅ 200<br/>1 запрос: chat + messages (join)]
+        M1[GET /api/messages/id<br/>✅ 200<br/>1 запрос: chat + messages join]
         M2[POST /api/messages/id<br/>✅ 201<br/>MessageManager.create → MessageInDb]
-        M3[DELETE /api/messages/id<br/>✅ 204<br/>1 запрос: msg + chat (join)]
+        M3[DELETE /api/messages/id<br/>✅ 204<br/>1 запрос: msg + chat join]
     end
 
     subgraph FILES["Files"]
@@ -167,7 +167,7 @@ graph LR
         WS1[WS-01: new_chat<br/>✅ при создании чата<br/>ChatInDb]
         WS2[WS-02: new_message<br/>✅ активный чат<br/>MessageResponse]
         WS2B[WS-02b: new_message<br/>✅ неактивный чат<br/>last_message + инвалидация кэша]
-        Note[✅ W8: new_message шлётся<br/>ВСЕМ участникам (включая<br/>отправителя), payload с client_id]
+        Note[✅ W8: new_message шлётся<br/>ВСЕМ участникам включая<br/>отправителя, payload с client_id]
     end
 
     subgraph CLIENT["Клиент"]
@@ -232,82 +232,7 @@ erDiagram
     }
 ```
 
-## 5. Сводка проблем
-
-```mermaid
-graph LR
-    subgraph CRIT["🔴 Критические (0)"]
-        AllC[Все критические проблемы закрыты<br/>C1 ✅ нарушение слоёв → сервисы<br/>C2 ✅ uploads вне STATIC_DIR<br/>C3 ✅ model_validate(None) → is None<br/>C4 ✅ Unit of Work — commit только на write<br/>C5 ✅ get_redis — double-checked locking]
-    end
-
-    subgraph WARN["🟡 Недоработки (0)"]
-        AllW[Все недоработки закрыты<br/>W2 ✅ chat+messages 1 запросом<br/>W3 ✅ message+chat 1 запросом<br/>W7 ✅ set_cookie → _auth_response<br/>W8 ✅ WS шлёт new_message отправителю<br/>W9 ✅ confirm по client_id, не по text<br/>W10 ✅ loaded-флаг + нормализация ключей]
-    end
-
-    subgraph BUGS["🐛 Баги (0)"]
-        AllB[Все баги закрыты<br/>B1 ✅ optimistic message_file_id=-1<br/>+ updateMessageInDom пересоздаёт элемент<br/>при приходе файла в подтверждении<br/>B2 ✅ activeChat рендерит стор сразу,<br/>не очищает контейнер до сетевого ответа<br/>B3 ✅ core/api.js: url → original.url<br/>в обработчике 401 (был ReferenceError)]
-    end
-
-    subgraph MINOR["🟢 Косметика (9) — отложено"]
-        M1[camelCase vs<br/>snake_case]
-        M4[CORS origins<br/>захардкожены]
-        M5[IMAGE_LOAD_TIMEOUT<br/>IMAGE_PLACEHOLDER<br/>захардкожены]
-        M6[find_all без order_by<br/>→ неопределённый порядок]
-        M7[except Exception<br/>в ws.py, files.py,<br/>utils/files.py,<br/>services/files.py]
-        M8[Depends() внутри<br/>static method AuthManager]
-        M9[notify_offline:<br/>2 DB + N WS<br/>запросов]
-        M10[константы<br/>разбросаны]
-        M11[isAuthRoute<br/>проверка по строке URL]
-    end
-
-    subgraph DEAD["⚫ Мёртвый код (0)"]
-        AllD[Мёртвый код отсутствует<br/>MessageDAO.list_messages ✅ удалён]
-    end
-```
-
-### Критические (подробно)
-
-> Все критические проблемы закрыты (C1–C5). См. §7 `FIXED_BE`.
-
-### Косметика (подробно) — отложено до следующего патча
-
-> Все пункты помечены в коде как `# TODO: [SMELL]/[CONFIG]/[DUP]/[PERF]`
-> со ссылкой на этот раздел. Функционально не критичны, поведение корректно.
-
-| ID | Файл | Проблема |
-|----|------|----------|
-| M1 | `schemas/*`, `dao/*` | camelCase на фронте vs snake_case в API — нет явного маппинга |
-| M4 | `main.py` | `allow_origins=[...]` захардкожен — вынести в `settings.ALLOWED_ORIGINS` |
-| M5 | `ui/imageLoader.js`, `ui/messageView.js` | `IMAGE_LOAD_TIMEOUT`, `IMAGE_PLACEHOLDER` — захардкожены |
-| M6 | `dao/base.py` | `find_all` без `order_by` → неопределённый порядок |
-| M7 | `routes/ws.py`, `services/files.py`, `services/websocket_manager.py`, `utils/files.py` | `except Exception` вместо конкретных типов |
-| M8 | `services/auth.py` | `Depends()` внутри `@staticmethod` — работает, но анти-паттерн |
-| M9 | `services/presence.py` | `notify_offline` = 2 DB-запроса + commit + N WS sends |
-| M10 | `core/constants.js`, `ui/imageLoader.js` | Константы разбросаны по файлам |
-| M11 | `core/api.js` | `isAuthRoute` — проверка по строке URL |
-| DUP1 | `schemas/user.py` | `trim` дублируется на уровне схемы и DAO |
-| DUP2 | `services/chats.py` | `_build_chat_response` — дублирование сборки last_message |
-
-### TODO в коде (по файлам) — отложенная косметика
-
-| Файл | Что |
-|------|-----|
-| `dao/base.py` | find_all без order_by (M6) |
-| `main.py` | CORS origins захардкожены (M4) |
-| `routes/ws.py` | except Exception (M7) |
-| `services/auth.py` | Depends в static method (M8) |
-| `services/chats.py` | дублирование _build_chat_response (DUP2) |
-| `services/files.py` | except Exception (M7) |
-| `services/presence.py` | 2DB + N WS (M9) |
-| `services/websocket_manager.py` | except Exception (M7) |
-| `utils/files.py` | except Exception (M7) |
-| `schemas/user.py` | trim дублируется (DUP1) |
-| `core/api.js` | isAuthRoute по строке (M11) |
-| `core/constants.js` | константы разбросаны (M10) |
-| `ui/imageLoader.js` | IMAGE_LOAD_TIMEOUT захардкожен (M5) |
-| `ui/messageView.js` | IMAGE_PLACEHOLDER захардкожен (M5) |
-
-## 6. Ошибки типов (проверка типов / pyright)
+---
 
 > `routes/messages.py` (send_message). Все 10 ошибок закрыты.
 > Фиксы: `chat_id_int` вместо мутации `chat_id: str`; `ChatManager.create → ChatInDb`
@@ -357,27 +282,27 @@ graph LR
         FF3[Optimistic updates<br/>addOptimisticMessage sended:false<br/>confirmMessage sended:true + real id]
         FF4[Гранулярные события<br/>messages:replaced / message:new /<br/>message:update — без полной перерисовки]
         FF5[WS неактивный чат<br/>инвалидирует кэш, история<br/>не теряется при открытии]
-        FF6[temp-чат → реальный id<br/>store.replaceTempChat (чат+сообщения+DOM)]
+        FF6[temp-чат → реальный id<br/>store.replaceTempChat чат+сообщения+DOM]
         FF7[notify с payload +<br/>функция отписки у subscribe]
         FF8[Структура: core / features / ui + app.js<br/>createMessageEl — один источник разметки<br/>убраны дубли render + getFileIcon, state.js удалён]
-        FF9[B2/B3: activeChat рендерит стор сразу<br/>(нет мигания/потери при offline);<br/>api.js 401: url → original.url]
+        FF9[B2/B3: activeChat рендерит стор сразу<br/> нет мигания/потери при offline;<br/>api.js 401: url → original.url]
     end
 
     subgraph FIXED_BE["✅ Backend — состояние"]
         FB0[C2: uploads вынесены в BASE_DIR/uploads,<br/>StaticFiles больше не отдаёт их публично,<br/>docker-compose: uploads_data volume]
-        FB0b[C3: ChatManager.get — проверка is None<br/>до model_validate, безопасный return None<br/>вместо 500 (MessageManager.get удалён<br/>при рефакторинге — его роль у get_chat_messages)]
-        FB0c[C4: Unit of Work — commit убран из get_session,<br/>явный session.commit() в write-эндпоинтах<br/>(register, delete_chat, send_message, delete_message),<br/>GET-запросы без commit]
+        FB0b[C3: ChatManager.get — проверка is None<br/>до model_validate, безопасный return None<br/>вместо 500 MessageManager.get удалён<br/>при рефакторинге — его роль у get_chat_messages]
+        FB0c[C4: Unit of Work — commit убран из get_session,<br/>явный session.commit в write-эндпоинтах<br/> register, delete_chat, send_message, delete_message,<br/>GET-запросы без commit]
         FB0d[W11: CSRF Double Submit Cookie —<br/>кука csrftoken + заголовок X-CSRF-Token,<br/>require_csrf на logout/refresh/send/delete]
-        FB0e[C5: get_redis — double-checked locking<br/>с asyncio.Lock: один победитель создаёт<br/>ConnectionPool, остальные ждут, быстрая<br/>проверка без блокировки]
+        FB0e["C5: переделано — инициализация Redis через<br/>init_redis() в lifespan (до yield),<br/>get_redis() без блокировок;<br/>close_redis() + engine.dispose() после yield"]
         FB0f[C1: Нарушение слоёв устранено:<br/>MessageManager.soft_delete вместо<br/>MessageDAO.soft_delete_message в роуте,<br/>FileManager.get вместо FileDAO в роуте]
-        FB0g[temp-чат: peer_id в FormData вместо<br/>chat_id.split('-'), store.replaceTempChat,<br/>без хрупкого парсинга строк]
-        FB0h[W2: MessageManager.get_chat_messages —<br/>чат+сообщения одним запросом<br/>(MessageDAO.find_by_chat_with_chat),<br/>батч-резолв файлов — нет N+1]
-        FB0i[W3: MessageManager.delete —<br/>сообщение+участники чата одним запросом<br/>(MessageDAO.find_with_chat_users)]
-        FB0j[Мёртвый код: MessageDAO.list_messages<br/>удалён (не вызывался)]
+        FB0g[temp-чат: peer_id в FormData вместо<br/>chat_id.split, store.replaceTempChat,<br/>без хрупкого парсинга строк]
+        FB0h[W2: MessageManager.get_chat_messages —<br/>чат+сообщения одним запросом<br/>MessageDAO.find_by_chat_with_chat,<br/>батч-резолв файлов — нет N+1]
+        FB0i[W3: MessageManager.delete —<br/>сообщение+участники чата одним запросом<br/>MessageDAO.find_with_chat_users]
+        FB0j[Мёртвый код: MessageDAO.list_messages<br/>удалён не вызывался]
         FB0k[W7: routes/auth.py — хелпер _auth_response,<br/>устраняет дублирование set_cookie<br/>в login и refresh]
-        FB0l[W8: send_message шлёт new_message<br/>ВСЕМ участникам (включая отправителя),<br/>payload содержит client_id]
-        FB0m[W9: optimistic confirm по client_id<br/>(не по тексту) — store.confirmMessage,<br/>send.js генерирует crypto.randomUUID]
-        FB0n[W10: нормализация ключей Map<br/>(_normalizeChatId) + флаг loaded<br/>вместо hasMessages(size>0)]
+        FB0l[W8: send_message шлёт new_message<br/>ВСЕМ участникам включая отправителя,<br/>payload содержит client_id]
+        FB0m[W9: optimistic confirm по client_id<br/>не по тексту — store.confirmMessage,<br/>send.js генерирует crypto.randomUUID]
+        FB0n[W10: нормализация ключей Map<br/>_normalizeChatId + флаг loaded<br/>вместо hasMessages size>0]
         FB0o[B1: optimistic message_file_id=-1 +<br/>updateMessageInDom пересоздаёт элемент,<br/>если в подтверждении пришёл файл]
         FB0p[dao/base.py: no-any-return закрыты<br/>через typing.cast — mypy 0 ошибок]
         FB1[routes/auth.py register:<br/>убран мёртвый except IntegrityError<br/>сервис уже конвертирует в ConflictError]
@@ -387,6 +312,27 @@ graph LR
         FB5[ре-экспорт через __init__.py<br/>app.dao / app.schemas /<br/>app.services / app.utils]
         FB6[Логгер: info temp-chat убран<br/>дубль ChatManager; login<br/>success/fail → сервис; Pillow-рендер<br/>+ лог → utils; мёртвый logger<br/>chats.py удалён]
         FB7[W6: login/logout/refresh<br/>→ AuthManager.create_session /<br/>revoke_session / rotate_session;<br/>_generate_tokens c AppError;<br/>+ фикс: сессия неактивного<br/>юзера теперь отзывается при refresh]
+    end
+
+    subgraph FIXED_V31["✅ v3.1 — текущий релиз: безопасность файлов + M-фиксы + стабилизация"]
+        FS1[S1: imageLoader.js<br/>импорт 'static/...' → '/static/js/core/constants.js'<br/>— относительный путь не резолвился]
+        FS2[S2: imageLoader.js<br/>убран priority:'high' из fetch<br/>— не-стандартное свойство]
+        FS3[S3: routes/files.py<br/>Query None, ge=1, le=4000/100<br/>вместо Query 70<br/>ветки quality or 60/80 больше не мёртвые]
+        FS4[S4: utils/files.py<br/>resolve_file_path — str.startswith<br/>→ Path.is_relative_to<br/>обход traversal через uploads_evil]
+        FS5[S5: utils/validators.py<br/>новая validate_file_name<br/>reject: пустое, /, \, ., .., ctrl, >255<br/>требует name==basename<br/>вызовы в save_file и FileManager.create]
+        FM_A[M-A: services/chats.py ChatManager.create<br/>BadRequestError при user_a==user_b<br/>проверка существования/активности peer<br/>users=sorted для детерминизма]
+        FM_C[M-C: services/files.py FileManager.create<br/>FileDAO.add в begin_nested savepoint<br/>except IntegrityError → повторный<br/>поиск по rel_path → FileInDb или ConflictError]
+        FM_E[M-E: routes/messages.py send_message<br/>guard пустое сообщение без файла<br/>на бэкенде]
+        FD1[dao/base.py find_all<br/>удалён как мёртвый код M6]
+        FD2[core/constants.js<br/>IMAGE_LOAD_TIMEOUT, IMAGE_PLACEHOLDER<br/>перенесены из messageView.js M5]
+        V32a[CSRF: pages.py → generate_csrf_token +<br/>set_csrf_cookie единые secure/samesite/httponly]
+        V32b[Циклические импорты: pwd_context →<br/>utils/security.py; внутри-пакетные импорты<br/>через конкретные модули; UserCreate → UserRegister]
+        V32c[M4/M10: config.py — ALLOWED_ORIGINS,<br/>REGISTER/LOGIN_RATE_LIMIT, MAX_MESSAGE_LENGTH,<br/>MAX_FILE_SIZE, ALLOWED_FILE_EXTENSIONS;<br/>get_db_url → @property db_url]
+        V32d[M7: except Exception → конкретные типы<br/>ws.py / websocket_manager / services.files /<br/>utils.files / routes.messages;<br/>RSA ключи → понятный RuntimeError]
+        V32e[save_file: bool → exception;<br/>compress_image_sync двойной save →<br/>взаимоисключающие ветки;<br/>run_in_threadpool для os.path.exists /<br/>resolve_file_path; engine.dispose в lifespan]
+        V32f[C5 переделана: lazy get_redis+Lock →<br/>init_redis в lifespan до yield,<br/>close_redis после; services/__init__ экспорт]
+        V32g[P1.7 notify_offline — один commit в конце;<br/>P1.8 AppError 4xx → logger.warning;<br/>DUP2 _build_chat_response;<br/>DUP1 trim только в схемах]
+        V32h["FE: getCsrfToken экспорт из api.js<br/>(дедуп x3); M11 isAuthRoute → regex"]
     end
 ```
 
@@ -436,13 +382,14 @@ static/js/
 
 ## Статус проекта
 
+> Полный список открытых задач — в [`docs/TODO.md`](TODO.md).
+> Закрытые задачи — в [`docs/CHANGELOG.md`](CHANGELOG.md).
+
 | Категория | Кол-во | Статус |
 |-----------|--------|--------|
-| ✅ Работает | 68 | — |
-| 🟡 Недоработки | 0 | Все закрыты (W2/W3/W7/W8/W9/W10/W11) |
-| 🔴 Критические | 0 | Все закрыты (C1–C5) |
-| 🔴 Баги | 0 | Все закрыты (B1) |
-| 🔴 Ошибки типов | 0 открыто / 13 закрыто | ✅ ruff + mypy чисто |
-| 🟢 Косметика | 9 (+2 DUP) | Отложено до следующего патча (§5) |
-| ⚫ Мёртвый код | 0 | — |
-| **Всего** | **~99% готово** | Готово к коммиту v3.0 |
+| ✅ Работает | 86+ | — |
+| 🟡 Недоработки | 7 | см. `docs/TODO.md` |
+| 🔴 Критические | 3 | см. `docs/TODO.md` |
+| 🟢 Косметика | 8 | см. `docs/TODO.md` |
+| ⚫ Мёртвый код | 1 | см. `docs/TODO.md` |
+| **Всего** | **~96% готово** | Готово к коммиту v3.1 |

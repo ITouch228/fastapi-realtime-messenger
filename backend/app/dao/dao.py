@@ -14,8 +14,7 @@ class UserDAO(BaseDAO[User]):
 
     @classmethod
     async def find_by_login(cls, session: AsyncSession, login: str) -> User | None:
-        login = login.strip()
-
+        # trim уже выполнен на уровне схемы (UserLogin.validate_login)
         if is_email(login):
             stmt = select(cls.model).where(cls.model.email == login.lower())
         else:
@@ -28,6 +27,7 @@ class UserDAO(BaseDAO[User]):
     async def search_by_username(
         cls, session: AsyncSession, query: str, limit: int = 20
     ) -> Sequence[User]:
+        query = query.strip()
         pattern = f'%{query}%'
         stmt = (
             select(cls.model)

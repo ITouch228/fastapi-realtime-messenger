@@ -1,7 +1,9 @@
 import secrets
 from functools import lru_cache
 
-from app.deps import pwd_context
+from passlib.context import CryptContext
+
+pwd_context: CryptContext = CryptContext(schemes=['bcrypt'], deprecated='auto')
 
 
 def verify_password(plain_password, hashed_password):

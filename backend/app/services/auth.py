@@ -1,18 +1,14 @@
-from fastapi import Depends
 from jose import JWTError
-from redis import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_session
 from app.exceptions import AppError, NotFoundError, UnauthorizedError
-from app.schemas import UserCreate, UserInDB, UserLogin, UserResponse
-from app.services.session_manager import SessionManager, get_session_manager
+from app.schemas import UserInDB, UserLogin, UserRegister, UserResponse
+from app.services.session_manager import SessionManager
 from app.services.users import UserManager
 from app.utils import (
     DUMMY_PASSWORD_HASH,
     create_access_token,
     create_refresh_token,
-    get_access_token_from_cookie,
     get_logger,
     get_password_hash,
     verify_password,
@@ -32,7 +28,7 @@ class AuthManager:
             access_token = create_access_token(session_id=session_id)
             refresh_token = create_refresh_token(session_id=session_id)
             return access_token, refresh_token
-        except (JWTError, RedisError):
+        except JWTError:
             logger.exception('Ошибка генерации токена для пользователя: %s', user_id)
             raise AppError(detail='Внутренняя ошибка сервера')
 
@@ -48,7 +44,7 @@ class AuthManager:
     async def revoke_session(
         session_manager: SessionManager, access_token: str | None
     ) -> None:
-        """Отзывает сессию по access-токену (logout)."""
+        """Отзывает сессию по access-токену."""
         if not access_token:
             return
         session_id = verify_token(access_token, token_type='access')
@@ -89,7 +85,7 @@ class AuthManager:
         return AuthManager._generate_tokens(new_session_id, user_id)
 
     @staticmethod
-    async def create_user(session: AsyncSession, user_data: UserCreate) -> UserInDB:
+    async def register_user(session: AsyncSession, user_data: UserRegister) -> UserInDB:
         logger.info(
             'Попытка регистрации нового пользователя: %s, %s',
             user_data.email,
@@ -129,19 +125,15 @@ class AuthManager:
         return user
 
     @staticmethod
-    async def get_current_user_from_cookie(
-        session: AsyncSession = Depends(get_session),
-        access: str = Depends(get_access_token_from_cookie),
-        session_manager: SessionManager = Depends(get_session_manager),
+    async def get_user_by_token(
+        session: AsyncSession,
+        access_token: str | None,
+        session_manager: SessionManager,
     ) -> UserResponse | None:
-        # TODO: [SMELL] Depends() внутри static method — анти-паттерн.
-        # FastAPI обрабатывает это, но метод не может быть вызван напрямую
-        # без DI-контейнера. Лучше вынести в отдельный dependency-функцию.
-        # docs/architecture.md §5: 🟡 Depends внутри AuthManager
-        if not access:
+        if not access_token:
             return None
 
-        session_id = verify_token(access, token_type='access')
+        session_id = verify_token(access_token, token_type='access')
         if not session_id:
             return None
 
@@ -150,18 +142,7 @@ class AuthManager:
             logger.warning('Сессия истекла или отозвана: session_id=%s', session_id)
             return None
 
-        return await UserManager.get_active(session=session, user_id=user_id)
-
-    @staticmethod
-    async def get_current_user(
-        session: AsyncSession = Depends(get_session),
-        access: str = Depends(get_access_token_from_cookie),
-        session_manager: SessionManager = Depends(get_session_manager),
-    ) -> UserResponse:
-        current_user = await AuthManager.get_current_user_from_cookie(
-            session=session, access=access, session_manager=session_manager
-        )
-        if current_user is None:
-            raise UnauthorizedError('Не аутентифицирован')
-
-        return current_user
+        try:
+            return await UserManager.get_active(session=session, user_id=user_id)
+        except (NotFoundError, UnauthorizedError):
+            return None

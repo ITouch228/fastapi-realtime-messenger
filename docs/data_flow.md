@@ -135,20 +135,20 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    subgraph WARN["🟢 Косметика (отложено, см. architecture.md §5)"]
-        B4[trim дважды:<br/>схема + DAO (DUP1)]
-        B5[Depends() внутри<br/>@staticmethod AuthManager (M8)]
+    subgraph WARN["🟢 Косметика (отложено, см. docs/TODO.md)"]
+        B4["✅ DUP1 trim закрыто"]
+        B5["Depends() внутри @staticmethod AuthManager (M8)"]
     end
 
     subgraph OK["✅ Хорошо"]
-        C1[authenticate_user<br/>в сервисе]
-        C2[Timing-attack<br/>DUMMY_HASH]
-        C3[Ротация сессий<br/>на refresh]
-        C4[JWT sub =<br/>session_id]
-        C5[UserResponse<br/>id возвращён]
-        C6[лог auth.py<br/>user_data.login]
-        C7[rotate_session /<br/>create_session /<br/>revoke_session<br/>в сервисе (W6)]
-        C8[CSRF Double Submit<br/>cookie csrftoken +<br/>header X-CSRF-Token<br/>на logout/refresh/send/delete]
+        C1[authenticate_user в сервисе]
+        C2[Timing-attack DUMMY_HASH]
+        C3[Ротация сессий на refresh]
+        C4[JWT sub = session_id]
+        C5[UserResponse id возвращён]
+        C6[лог auth.py user_data.login]
+        C7["rotate_session / create_session / revoke_session в сервисе (W6)"]
+        C8[CSRF Double Submit cookie csrftoken + header X-CSRF-Token на logout/refresh/send/delete]
     end
 ```
 
@@ -462,7 +462,7 @@ stateDiagram-v2
 | WebSocket | ✅ | Reconnect + индикатор статуса |
 | Загрузка файла | ✅ | Pillow-рендер и лог вынесены в utils.render_image_response |
 | Хранение файлов | ✅ | uploads в `BASE_DIR/uploads`, вне STATIC_DIR |
-| get_redis | ✅ | Double-checked locking с asyncio.Lock |
+| get_redis | ✅ | v3.2: init_redis() в lifespan, без lazy-блокировок |
 | session.commit | ✅ | Unit of Work — только на write-операциях |
 | model_validate(None) | ✅ | `is None` до валидации |
 | Нарушение слоёв | ✅ | Все DAO через сервисы (MessageManager/FileManager) |
@@ -494,5 +494,5 @@ Access:  авто (uvicorn пишет сам: метод/путь/статус/�
 
 - `routes/chats.py` — ✅ `get_logger`/`logger` удалены (был мёртвым)
 - `routes/files.py` — ✅ `logger` удалён вместе с Pillow-логикой (ушла в utils)
-- `routes/messages.py` — `logger` живой: fallback `except Exception` в `send_message`
+- `routes/messages.py` — `logger` живой: fallback `except (AppError, OSError, RuntimeError)` в `send_message`
 - `services/*` — живой, бизнес-события

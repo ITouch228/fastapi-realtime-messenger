@@ -53,10 +53,16 @@ async def websocket_endpoint(
                 await asyncio.wait_for(websocket.receive_text(), HEARTBEAT_TIMEOUT)
             except TimeoutError:
                 await websocket.send_json({'type': 'ping'})
-    except (WebSocketDisconnect, Exception):
-        # TODO: [SMELL] except (WebSocketDisconnect, Exception) — Exception ловит
-        # ВСЁ (RuntimeError, OSError, KeyboardInterrupt). Лучше (WebSocketDisconnect,
-        # OSError, ConnectionResetError).
+    except (WebSocketDisconnect, OSError, RuntimeError) as exc:
+        # Штатный обрыв: клиент закрыл вкладку, сеть пропала, сокет уже
+        # закрыт (starlette поднимает RuntimeError при send в закрытый сокет)
+        logger.info('WS-соединение закрыто: user_id=%s (%s)', user_id, exc)
+    except (KeyError, TypeError, AttributeError):
+        # Баги в коде — логируем с traceback и поднимаем вверх
+        logger.critical('Неожиданная ошибка в WS-цикле', exc_info=True)
+    finally:
+        # Отписка обязательна в любом случае, иначе соединение останется в
+        # active_connections и пользователь «зависнет» в статусе онлайн
         went_offline = manager.disconnect(websocket, user_id)
         if went_offline:
             async with async_session_maker() as session:
