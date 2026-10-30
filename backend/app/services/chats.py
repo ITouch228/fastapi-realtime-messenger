@@ -1,10 +1,17 @@
 from datetime import datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dao import ChatDAO, MessageDAO
-from app.exceptions import BadRequestError, NotFoundError, PermissionDeniedError
+from app.exceptions import (
+    AppError,
+    BadRequestError,
+    NotFoundError,
+    PermissionDeniedError,
+)
 from app.schemas import ChatInDb, ChatResponse
+from app.services.files import FileManager
 from app.services.users import UserManager
 from app.services.websocket_manager import manager
 from app.utils import get_logger
@@ -58,6 +65,7 @@ class ChatManager:
         user_a_id: int,
         user_b_id: int,
     ) -> ChatInDb:
+        """Создать чат пары (идемпотентно: существующий чат возвращается как есть)."""
         if user_a_id == user_b_id:
             raise BadRequestError(detail='Нельзя создать чат с самим собой')
 
@@ -73,8 +81,23 @@ class ChatManager:
         logger.info('Создание чата между пользователями: %s и %s', user_a_id, user_b_id)
         # Детерминированный порядок [min, max]: один и тот же диалог хранится
         # одинаково (contains-поиск порядка не требует, но нормализация нужна
-        # для будущего unique-индекса и предсказуемых данных)
-        chat = await ChatDAO.add(session=session, users=sorted([user_a_id, user_b_id]))
+        # для unique-индекса ix_chats_users_unique и предсказуемых данных).
+        try:
+            # Savepoint: при гонке (параллельный POST /chats той же пары)
+            # unique-индекс откатывает только этот INSERT, основная транзакция
+            # (например, отправка сообщения в temp-чате) остаётся живой.
+            async with session.begin_nested():
+                chat = await ChatDAO.add(
+                    session=session, users=sorted([user_a_id, user_b_id])
+                )
+        except IntegrityError:
+            existing = await ChatDAO.find_between_users(
+                session=session, user_a_id=user_a_id, user_b_id=user_b_id
+            )
+            if existing is None:
+                logger.exception('Ошибка целостности при создании чата')
+                raise AppError(detail='Ошибка создания чата') from None
+            return ChatInDb.model_validate(existing)
         return ChatInDb.model_validate(chat)
 
     @staticmethod
@@ -82,6 +105,7 @@ class ChatManager:
         session: AsyncSession,
         chat_id: int,
     ) -> ChatResponse | None:
+        """Чат по id без проверки участников. Не найден → None."""
         logger.info('Получение чата с ID: %s', chat_id)
         chat = await ChatDAO.find_one_or_none(session=session, id=chat_id)
         if chat is None:
@@ -90,6 +114,7 @@ class ChatManager:
 
     @staticmethod
     async def get_by_user(user_id: int, session: AsyncSession) -> list[ChatResponse]:
+        """Список чатов пользователя с последним сообщением и статусом собеседника."""
         logger.info('Загрузка чатов пользователя с ID: %s', user_id)
 
         chats = await ChatDAO.find_by_user(session=session, user_id=user_id)
@@ -117,6 +142,7 @@ class ChatManager:
     async def get_by_users(
         user_a_id: int, user_b_id: int, session: AsyncSession
     ) -> ChatResponse | None:
+        """Чат между двумя пользователями. Не найден → None."""
         logger.info('Загрузка чата пользователей с ID: %s %s', user_a_id, user_b_id)
 
         chat = await ChatDAO.find_between_users(
@@ -142,6 +168,7 @@ class ChatManager:
 
     @staticmethod
     async def delete(chat_id: int, user_id: int, session: AsyncSession) -> None:
+        """Удалить чат (только участник): сообщения, файлы в БД и файлы на диске."""
         chat = await ChatDAO.find_one_or_none(session, id=chat_id)
         if not chat:
             raise NotFoundError('Чат не найден')
@@ -150,5 +177,11 @@ class ChatManager:
             raise PermissionDeniedError('Доступ запрещен')
 
         logger.info('Удаление чата: %s', chat_id)
+
+        # Удалить файлы: строки из БД + физические файлы на диске.
+        # commit происходит на уровне роута — если транзакция откатится,
+        # физически файлы ещё не будут удалены.
+        await FileManager.delete_chat_files(session=session, chat_id=chat_id)
+
         await ChatDAO.delete(session=session, chat_id=chat_id)
         logger.info('Чат успешно удалён: %s', chat_id)

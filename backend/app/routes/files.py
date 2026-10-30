@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import FileResponse
 
+from app.config import settings
 from app.database import get_session
 from app.deps import get_current_user
 from app.exceptions import NotFoundError
@@ -40,11 +41,11 @@ async def download_file(
         'mobile' in user_agent or 'android' in user_agent or 'iphone' in user_agent
     )
     if is_mobile:
-        quality = quality if quality is not None else 60
-        width = int(width) if width else 800
+        quality = quality if quality is not None else settings.IMAGE_QUALITY_MOBILE
+        width = int(width) if width else settings.IMAGE_WIDTH_MOBILE
     else:
-        quality = quality if quality is not None else 80
-        width = int(width) if width else 1200
+        quality = quality if quality is not None else settings.IMAGE_QUALITY_DESKTOP
+        width = int(width) if width else settings.IMAGE_WIDTH_DESKTOP
 
     image_response = await run_in_threadpool(
         render_image_response,

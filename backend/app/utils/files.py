@@ -88,7 +88,9 @@ def render_image_response(
         return None
 
 
-def compress_image_sync(image_bytes: bytes, quality: int = 85) -> bytes:
+def compress_image_sync(
+    image_bytes: bytes, quality: int = settings.IMAGE_SAVE_QUALITY
+) -> bytes:
     """
     Сжимает JPEG/WEBP с потерями, оптимизирует PNG, сохраняет анимацию GIF.
 
@@ -126,13 +128,29 @@ def compress_image_sync(image_bytes: bytes, quality: int = 85) -> bytes:
         return image_bytes
 
 
+async def delete_files_from_disk(rel_paths: list[str]) -> None:
+    """Удаляет файлы с диска (non-blocking). Не бросает, если файлы уже удалены."""
+
+    def _unlink() -> None:
+        root = FILES_ROOT.resolve()
+        for rel in rel_paths:
+            path = (root / rel).resolve()
+            if path.is_relative_to(root) and path.exists():
+                try:
+                    path.unlink()
+                except OSError:
+                    logger.warning('Не удалось удалить файл: %s', rel)
+
+    await run_in_threadpool(_unlink)
+
+
 async def save_file(chat_id: int, file_name: str, file_content: bytes) -> None:
+    """Проверить и сохранить файл в uploads/{chat_id}/. Изображения сжимает в WebP."""
     if chat_id < 0:
         raise BadRequestError(detail='Некорректный ID чата')
 
-    # validate_file_name: отклоняет разделители путей (в т.ч. обратную косую
-    # черту Windows), управляющие символы, '.'/'..'; проверка '..' in name
-    # сама по себе была неполной
+    # Отклоняет разделители путей (в т.ч. обратную косую черту Windows),
+    # управляющие символы, '.'/'..'.
     validate_file_name(file_name)
 
     if len(file_content) == 0:
@@ -155,7 +173,7 @@ async def save_file(chat_id: int, file_name: str, file_content: bytes) -> None:
     try:
         await run_in_threadpool(os.makedirs, abs_path.parent, exist_ok=True)
 
-        if file_ext.lower() in ['.png', '.jpg', '.jpeg', '.webp', '.gif']:
+        if file_ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif']:
             try:
                 img = await run_in_threadpool(Image.open, io.BytesIO(file_content))
                 await run_in_threadpool(img.verify)

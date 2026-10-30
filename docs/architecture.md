@@ -40,7 +40,7 @@ graph LR
         CMGR[ChatManager<br/>✅ create/get/by_user/delete]
         MMGR[MessageManager<br/>✅ create/get_chat_messages/<br/>delete/build_response]
         FMGR[FileManager<br/>✅]
-        WSMGR[WebSocketManager<br/>✅ M7 закрыт]
+        WSMGR[WebSocketManager<br/>✅ M7 закрыт<br/>✅ M-F: asyncio.Lock]
     end
 
     subgraph DAO["DAO / PostgreSQL"]
@@ -387,9 +387,8 @@ static/js/
 
 | Категория | Кол-во | Статус |
 |-----------|--------|--------|
-| ✅ Работает | 86+ | — |
-| 🟡 Недоработки | 7 | см. `docs/TODO.md` |
-| 🔴 Критические | 3 | см. `docs/TODO.md` |
-| 🟢 Косметика | 8 | см. `docs/TODO.md` |
-| ⚫ Мёртвый код | 1 | см. `docs/TODO.md` |
-| **Всего** | **~96% готово** | Готово к коммиту v3.1 |
+| ✅ Работает | 89+ | — |
+| 🔴 Критические | 1 | N17 (WS-состояние локально для воркера) |
+| 🟡 Недоработки | 2 | N18 (rate limit в памяти процесса), N19 (порядок presence) |
+| 🟢 Косметика | 3 | N14, N16, N20 |
+| **Всего открыто** | **6** | см. `docs/TODO.md` |

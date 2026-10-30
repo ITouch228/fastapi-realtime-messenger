@@ -228,3 +228,17 @@ class FileDAO(BaseDAO[File]):
         stmt = select(cls.model).where(cls.model.id.in_(file_ids))
         result = await session.execute(stmt)
         return result.scalars().all()
+
+    @classmethod
+    async def find_by_chat(cls, session: AsyncSession, chat_id: int) -> Sequence[File]:
+        """Все файлы чата. file_path имеет формат '{chat_id}/{disk_name}'."""
+        stmt = select(cls.model).where(cls.model.file_path.like(f'{chat_id}/%'))
+        result = await session.execute(stmt)
+        return result.scalars().all()
+
+    @classmethod
+    async def delete_by_chat(cls, session: AsyncSession, chat_id: int) -> int:
+        """Удалить строки файлов чата по префиксу пути. Возвращает число удалённых."""
+        stmt = delete(cls.model).where(cls.model.file_path.like(f'{chat_id}/%'))
+        result = await session.execute(stmt)
+        return result.rowcount

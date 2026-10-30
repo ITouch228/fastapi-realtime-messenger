@@ -7,180 +7,265 @@
 
 ## 🔴 Критические
 
-### [ ] N1 — Удаление чата оставляет строки `File` и файлы на диске
+### [x] N1 — Удаление чата оставляет строки `File` и файлы на диске
 
-**Файлы:** `models/chat.py`, `services/chats.py`
+**Файлы:** `services/chats.py`, `services/files.py`, `dao/dao.py`, `utils/files.py`
 
-`Chat.messages` — `cascade-delete-orphan`, но FK `Message.file_id` без каскада на `File`,
-и `File` не связан с чатом. При удалении чата строки `File` и physical-файлы
-в `uploads/<chat_id>/` остаются навсегда (disk leak, висячие ссылки).
-
-**Фикс:** `ondelete="CASCADE"` на FK `Message.file_id` или сервисный хелпер,
-удаляющий файлы перед удалением чата.
+**Фикс (2026-10-23):** `FileManager.delete_chat_files` — перед удалением чата находит все файлы по префиксу `file_path LIKE '{chat_id}/%'`, удаляет строки из БД (`FileDAO.delete_by_chat`), затем удаляет физические файлы с диска (`delete_files_from_disk`). commit на уровне роута — при откате транзакции физически файлы ещё не будут удалены.
 
 ---
 
-### [ ] N2 — Docker: секреты в образе + dev-режим в проде
+### [x] N2 — Docker: секреты в образе + dev-режим в проде
 
-**Файлы:** `backend/Dockerfile`, `backend/entrypoint.sh`, `docker-compose.yml`
+**Файлы:** `backend/Dockerfile`, `backend/entrypoint.sh`, `backend/.dockerignore`, `docker-compose.yml`, `docker-compose.override.yml`, `docker-compose.prod.yml`
 
-- `COPY . .` тащит `.env` и приватные RSA-ключи в образ (нет `.dockerignore`)
-- `entrypoint.sh` запускает `uvicorn --reload` под `restart: unless-stopped` (dev-режим)
-- Нет non-root user, нет HEALTHCHECK
-- bind-mount `./backend:/app` перекрывает копию образа
-
-**Фикс:** `.dockerignore`, `USER appuser`, HEALTHCHECK, убрать `--reload`,
-dev/prod варианты entrypoint.
+**Фикс (2026-10-25):** разделение dev/prod.
+- `.dockerignore` — `.env`, `keys/`, `logs/`, `uploads/`, кэш не попадают в образ.
+- `Dockerfile` — non-root `appuser` (uid 10001), `HEALTHCHECK`, `--reload` убран из образа.
+- `entrypoint.sh` — режим по env: `UVICORN_RELOAD=1` → `--reload` (dev), иначе `--workers N` (prod).
+- `docker-compose.yml` (base, prod-safe) — без bind-mount кода; uploads в volume, `keys/` смонтированы read-only.
+- `docker-compose.override.yml` (dev, авто) — bind-mount `./backend:/app` + `--reload`.
+- `docker-compose.prod.yml` (prod, явно) — без bind-mount, 4 воркера, `restart: always`.
+- Makefile: `make dev` / `make prod`.
 
 ---
 
 ## 🟡 Недоработки
 
-### [ ] N3 — mypy «чист» за счёт отключённых проверок
+### [x] N3 — mypy «чист» за счёт отключённых проверок
 
 **Файл:** `pyproject.toml`
 
-`disable_error_code = union-attr, arg-type, assignment, no-any-return` точечно на
-`routes/messages.py`, `routes/files.py`, `routes/chats.py`, `services/websocket_manager.py` —
-проверки отключены именно в бизнес-логике; verdict «mypy чистый» отражает override-зоны,
-а не покрытие.
-
-**Фикс:** включить проверки, исправить ошибки или сузить override.
-
----
-
-### [ ] N4 — Три `.env` с расходящимся содержимым
-
-**Файлы:** `./.env`, `./backend/.env`, `./backend/app/.env`
-
-pydantic-settings читает `backend/app/.env`, compose подключает `./backend/.env` для backend
-и `./.env` для postgres/redis — три источника правды по DB/REDIS/SECRET_KEY.
-
-**Фикс:** один `.env` в корне, остальные удалить.
+**Фикс (2026-10-25):** override `disable_error_code = union-attr, arg-type, assignment, no-any-return`
+для `app.routes.*` + `services.{files,messages,auth,users,chats}` полностью удалён — проверки
+включены на всей бизнес-логике. Реальная ошибка типов была одна: `BaseDAO.find_one_or_none`
+возвращал `Any` из `scalar_one_or_none()` → закрыта через `cast(ModelT | None, ...)`.
+Дополнительно убрана неиспользуемая секция `migration.*` (не грузится при `mypy --package app`,
+мешала `warn_unused_configs`). `mypy --package app` — 0 ошибок на холодном кэше (exit 0).
 
 ---
 
-### [ ] N5 — Нет unique-констрейнта на пару пользователей чата
+### [x] N4 — Три `.env` с расходящимся содержимым
 
-**Файл:** `models/chat.py`
+**Файлы:** `.env`, `.env.example`, `backend/app/config.py`, `docker-compose.yml`
 
-`users: list[int]` через PostgreSQL ARRAY, но `create` = SELECT + flush без commit →
-две параллельные `POST /chats` создают дубликаты одной пары.
-
-**Фикс:** `UNIQUE` constraint или partial index на сортированную пару `user_a_id, user_b_id`.
+**Фикс (2026-10-25):** один `.env` в корне репозитория. `backend/.env`, `backend/app/.env`
+(и их `.env.example`) удалены. `config.py` читает `REPO_ROOT/.env` (в контейнере файла нет —
+настройки приходят через `env_file` compose в OS env). `docker-compose.yml` подключает
+корневой `.env` и для postgres, и для backend; в `environment:` backend оставлены только
+сетеспецифичные `DB_HOST`/`REDIS_URL`. Устранена рассинхронизация `DB_NAME`
+(`messanger_db` в `backend/.env` vs `messenger_db` в остальных).
 
 ---
 
-### [ ] N6 — Лимитер не знает про reverse proxy
+### [x] N5 — Нет unique-констрейнта на пару пользователей чата
+
+**Файлы:** `models/chat.py`, `services/chats.py`, `migration/versions/06_..._unique_index.py`
+
+**Фикс (2026-10-25):** `users` хранится отсортированным (`sorted([user_a, user_b])`),
+поэтому канонический ключ пары — строка `array_to_string(users, ',')`. Миграция `06_...`
+удаляет существующие дубликаты и создаёт `UNIQUE` expression-индекс `ix_chats_users_unique`
+(ARRAY не поддерживает `=` в operator class, поэтому индекс по текстовому выражению).
+`ChatManager.create` оборачивает INSERT в `begin_nested()` savepoint: при `IntegrityError`
+(параллельный `POST /chats` той же пары) возвращает существующий чат через
+`ChatDAO.find_between_users`, основная транзакция не откатывается.
+
+---
+
+### [x] N6 — Лимитер не знает про reverse proxy
+
+**Файлы:** `services/limiter.py`, `config.py`, `.env.example`
+
+**Фикс (2026-10-29):** вместо `get_remote_address` — собственный `get_client_ip`.
+`X-Forwarded-For` учитывается только если соединение пришло от адреса из новой
+настройки `TRUSTED_PROXIES` (IP или CIDR, по умолчанию пусто → поведение как раньше,
+подделать клиента заголовком при прямом запросе нельзя). Заголовок читается справа
+налево: пропускаются доверенные прокси, первый недоверенный — клиент, поэтому
+цепочка `nginx → Caddy → app` работает, если все узлы в списке. Разбор `TRUSTED_PROXIES`
+под `lru_cache`, кривые значения молча отбрасываются (опечатка в `.env` не роняет старт).
+
+---
+
+### [x] M9 — `notify_offline` = 2 DB + N WS
+
+**Файлы:** `services/presence.py`, `services/websocket_manager.py`, `routes/messages.py`
+
+**Фикс (2026-10-29):** `_online_peers()` — адресаты берутся из памяти, а не из БД:
+снимок `manager.online_user_ids()` и только если кто-то онлайн — один `ChatDAO.get_peers`
+и пересечение. Никто не подключён → SELECT не выполняется вовсе, остаётся 1 DB-операция.
+Отправка — `manager.send_to_users(payload, targets)` одним `asyncio.gather`: время
+рассылки больше не растёт линейно от числа собеседников (3 клиента по 20 мс вместо
+60 мс → 20 мс). Порядок изменён на «прочитать адресатов → UPDATE + commit → разослать»,
+так что `presence_update` не опережает зафиксанный `last_seen` (раньше коммит был
+после отправок). Тот же батч применён в `routes/messages.py` (`new_chat`, `new_message`).
+
+---
+
+### [x] M-F — Нет `asyncio.Lock` в `WebSocketManager`
+
+**Файл:** `services/websocket_manager.py`, `routes/ws.py`
+
+**Фикс (2026-10-29):** все мутации `active_connections` (`connect`/`disconnect`/снятие
+мёртвых сокетов) под `asyncio.Lock`, `disconnect` стал `async` (обновлён `finally`
+в `routes/ws.py`). `send_*` под локом только берут снимок списка и отвязывают мёртвые —
+`send_json` выполняется без блокировки, иначе медленный клиент стопорил бы рассылку
+остальным, а вложенный `disconnect` ловил бы собственный лок. `is_online` остался
+синхронным: чтение словаря без `await` в asyncio атомарно. Проверено гонкой:
+20 параллельных `connect` → ровно один `was_offline=True`, 20 параллельных
+`disconnect` → ровно один `went_offline=True`.
+
+---
+
+### [ ] N17 — WS-состояние и presence локальны для процесса воркера
+
+**Файлы:** `services/websocket_manager.py`, `docker-compose.prod.yml`, `backend/entrypoint.sh`
+
+`manager` — синглтон уровня процесса, а `docker-compose.prod.yml` поднимает
+`UVICORN_WORKERS=4`, и каждый воркер получает своё `active_connections`. Следствия
+в проде:
+
+- `send_to_users`/`send_personal_message` доставляют только тем, чей сокет живёт
+  в том же воркере, что обработал HTTP-запрос → сообщения и presence теряются;
+- `is_online` в `_build_chat_response` (`services/chats.py`) и `online_user_ids`
+  в `presence.py` видят ~1/4 подключений → `peer_online` и рассылка врут;
+- `was_offline`/`went_offline` считаются по локальному набору → `last_seen`
+  пишется при закрытии вкладки одного воркера, хотя пользователь на связи в другом.
+
+В dev (`--reload`, 1 процесс) проблемы не видно — поэтому она и не всплывала.
+
+**Фикс:** вынести реестр подключений и доставку в Redis (pub/sub канал на пользователя
+или `presence`-ключи + рассылка через подписку), либо `UVICORN_WORKERS=1` при WS-нагрузке.
+
+---
+
+### [ ] N18 — Rate limit считается в памяти процесса
 
 **Файл:** `services/limiter.py`
 
-`get_remote_address` берёт `request.client.host` без `X-Forwarded-For` —
-за reverse proxy все клиенты сливаются в IP прокси, rate limits ломаются.
+`Limiter` создан без `storage_uri` → дефолт `memory://` со счётчиками в процессе.
+С `UVICORN_WORKERS=4` фактический лимит.register/login выше заявленного в 4 раза,
+а при рестарте воркера окно обнуляется. Связано с N17 (то же разделение по процессам).
 
-**Фикс:** `ProxyFix` middleware или настройка trusted headers.
-
----
-
-### [ ] M9 — `notify_offline` = 2 DB + N WS
-
-**Файл:** `services/presence.py`
-
-Commit перенесён в конец (✅ P1.7), но объём работы не уменьшен:
-`SessionDAO.update` + `ChatUserDAO.get_online_users` + N отправок.
-
-**Фикс:** батч-запрос или оптимистичная инвалидация на клиенте.
+**Фикс:** `Limiter(..., storage_uri=settings.REDIS_URL)` — Redis уже есть в инфраструктуре.
 
 ---
 
-### [ ] M-F — Нет `asyncio.Lock` в `WebSocketManager`
+### [ ] N19 — Presence-события могут прийти в обратном порядке
 
-**Файл:** `services/websocket_manager.py`
+**Файлы:** `services/presence.py`, `routes/ws.py`
 
-`connect/disconnect/send_*` мотируют `active_connections` без блокировки;
-`was_offline`/`went_offline` вычисляются на её основе — возможна гонка
-между параллельными WS-событиями одного пользователя.
+Лок (✅ M-F) делает атомарными сами переходы, но не порядок рассылок: `notify_offline`
+после commit ждёт БД/сеть, и если за это время пользователь переподключился,
+`presence_update{online: False}` может уйти позже `online: True` — клиент останется
+на «не в сети» при активном соединении.
 
-**Фикс:** `asyncio.Lock` на `active_connections`.
+**Фикс:** сериализовать рассылку на пользователя (per-user lock/очередь) либо
+версионировать событие (`sent_at`/монотонный счётчик) и игнорировать устаревшие
+в `core/store.js:setPeerStatus`.
 
 ---
 
 ## 🟢 Косметика
 
-### [ ] N7 — `to_dict()` — мёртвый код
+### [x] N7 — `to_dict()` — мёртвый код
 
 **Файлы:** `database.py`, `models/user.py`
 
-`to_dict()` не вызывается нигде.
-
-**Фикс:** удалить.
+**Фикс (2026-10-25):** `to_dict()` удалён из `Base` и `User`, убран неиспользуемый импорт `class_mapper` из `database.py`.
 
 ---
 
-### [ ] N8 — Коллизия имени `FileResponse`
+### [x] N8 — Коллизия имени `FileResponse`
 
-**Файл:** `routes/files.py`
+**Файл:** `schemas/file.py`
 
-Имя pydantic-схемы `FileResponse` collide со starlette `FileResponse`.
-
-**Фикс:** переименовать в `FileRecordResponse`.
+**Решение (2026-10-27):** не трогать — pydantic-схема и starlette `FileResponse` не пересекаются, влияние нулевое.
 
 ---
 
-### [ ] N9 — `AliasChoices("user_from_id")` — легаси
+### [x] N9 — `AliasChoices("user_from_id")` — легаси
 
 **Файл:** `schemas/message.py`
 
-В БД только `sender_id`.
-
-**Фикс:** убрать после миграции фронтенда.
+**Фикс (2026-10-27):** удалён `validation_alias=AliasChoices("sender_id", "user_from_id")` и устаревшие `model_config`/импорты. ORM-модель и фронт оба используют `sender_id`; алиас был нужен только в переходный период после миграции `45c5351c41f0`.
 
 ---
 
-### [ ] N10 — `get_active`: `-> UserResponse | None`, но `None` не возвращается никогда
+### [x] N10 — `get_active`: `-> UserResponse | None`, но `None` не возвращается никогда
 
-**Файл:** `services/chats.py`
+**Файлы:** `services/users.py`, `routes/ws.py`
 
-Только `raise NotFoundError`.
-
-**Фикс:** сузить сигнатуру до `-> UserResponse`.
+**Фикс (2026-10-25):** контракт — бросающий (`get_active` поднимает `NotFoundError`/`UnauthorizedError`), согласован с остальными методами и с двумя другими вызовами (`rotate_session`, `get_user_by_token`, которые их ловят). Сигнатура сужена до `-> UserResponse`. В `routes/ws.py` мёртвая проверка `if not await get_active(...)` заменена на явный `try/except (NotFoundError, UnauthorizedError) → close(4404)` (в WS нет HTTP exception handlers).
 
 ---
 
-### [ ] N11 — Захардкоженные константы
+### [x] N11 — Захардкоженные константы
 
-**Файлы:** `routes/ws.py`, `services/websocket_manager.py`, `utils/files.py`
+**Файлы:** `config.py`, `routes/ws.py`, `routes/files.py`, `utils/files.py`
 
-`HEARTBEAT_TIMEOUT=90`, `max_connections=1000`, `quality=85`, `WEBP_MAX_WIDTH=1200` —
-вынести в `config.py` по образцу v3.1.
-
----
-
-### [ ] N12 — `send_message(chat_id: str)` при пути `/chats/{chat_id:int}`
-
-**Файл:** `services/messages.py`
-
-Двойное приведение: FastAPI парсит `int`, сервис снова `int(chat_id)`.
-
-**Фикс:** типизировать `int`.
+**Фикс (2026-10-27):** вынесено в `Settings`: `WS_HEARTBEAT_TIMEOUT=25`,
+`IMAGE_SAVE_QUALITY=85`, `IMAGE_QUALITY_MOBILE=60`, `IMAGE_QUALITY_DESKTOP=80`,
+`IMAGE_WIDTH_MOBILE=800`, `IMAGE_WIDTH_DESKTOP=1200`. Роуты и утилиты читают `settings`.
 
 ---
 
-### [ ] N13 — Двойная валидация файла
+### [x] N13 — Двойная проверка `MAX_FILE_SIZE`
 
-**Файлы:** `utils/files.py`, `services/files.py`
+**Файлы:** `routes/messages.py`, `utils/files.py`
 
-ext+size проверяются и в `save_file`, и в `FileManager.create`.
+**Фикс (2026-10-27):** удалена дубль-проверка размера файла из роута; остаётся только в `save_file` (утилита).
 
-**Фикс:** оставить одну (в `save_file`).
+---
+
+### [x] N15 — Создание `new_chat` payload через схему
+
+**Файл:** `routes/messages.py`
+
+**Фикс (2026-10-27):** payload собирается через `ChatResponse.model_validate(...).model_dump(mode='json')` — нет дублирования dict-литерала, один источник истины.
 
 ---
 
 ### [ ] N14 — `get_session_manager()` создаёт новый `SessionManager` на каждый запрос
 
-**Файл:** `deps.py`
+**Файл:** `services/session_manager.py` (используется через `Depends` в `deps.py`, `routes/ws.py`)
+
+Возвращает новый `SessionManager` на каждый вызов. Дёшево (redis-клиент — общий синглтон,
+сам менеджер stateless), но лишние аллокации.
 
 **Фикс:** синглтон.
+
+---
+
+### [ ] N16 — `WebSocketManager.broadcast` — мёртвый код
+
+**Файл:** `services/websocket_manager.py`
+
+Метод определён, но не вызывается нигде в проекте (рассылки идут через
+`send_personal_message` по участникам чата).
+
+**Фикс:** удалить либо начать использовать (например, для системных событий).
+
+---
+
+### [x] N21 — README ссылается на удалённые `backend/.env` / `backend/.env.example`
+
+**Файл:** `README.md`
+
+**Фикс (2026-10-29):** N4 удалил `backend/.env.example` и `backend/.env`, но README продолжал ссылаться на них в шагах «Быстрый старт» и «Локально по http». Обновлено: один `.env` в корне, `.venv` тоже в корне.
+
+---
+
+### [ ] N20 — `make lint` работает только с ruff/mypy на PATH
+
+**Файл:** `Makefile`
+
+Цели `lint-back`/`format-back` зовут `ruff` и `mypy` напрямую. В репозитории есть
+`.venv/` (в `.gitignore`) с `requirements-dev.txt`, но без его активации `make lint`
+падает на `mypy: command not found` — проверка «через Makefile» проходит лишь
+частично (ruff при этом находится).
+
+**Фикс:** `PYTHON ?= python3` + `$(PYTHON) -m ruff ... / $(PYTHON) -m mypy ...`,
+чтобы использовался интерпретатор активного окружения.
 
 ---
 
@@ -225,6 +310,15 @@ ext+size проверяются и в `save_file`, и в `FileManager.create`.
 
 **Наблюдение:** `async_session_maker` как `contextmanager` уже делает `await session.close()`
 при выходе. Явный rollback только на exception — ок.
+
+---
+
+### [x] N12 — `send_message(chat_id: str)` + `int(chat_id)`
+
+**Файлы:** `routes/messages.py`, `static/js` (`send.js`)
+
+**Решение (2026-10-27):** оставляем как есть — осознанно: временный чат отправляет
+`"temp-<peerId>"` в FormData, поэтому параметр принимает строку и приводит её к `int`.
 
 ---
 

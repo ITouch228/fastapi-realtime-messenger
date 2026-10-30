@@ -5,7 +5,7 @@ from app.config import FILES_ROOT
 from app.dao import ChatDAO, FileDAO, MessageDAO
 from app.exceptions import AppError, BadRequestError, ConflictError, NotFoundError
 from app.schemas import FileInDb, UserResponse
-from app.utils import get_logger
+from app.utils import delete_files_from_disk, get_logger
 from app.utils.validators import validate_file_name
 
 logger = get_logger(__name__)
@@ -22,6 +22,7 @@ class FileManager:
         mime_types: str,
         size_bytes: int,
     ) -> FileInDb:
+        """Зарегистрировать файл в БД (идемпотентно по file_path)."""
         logger.info('Добавление файла в БД: чат %s, файл %s', chat_id, file_name)
 
         validate_file_name(file_name)
@@ -50,7 +51,7 @@ class FileManager:
             return FileInDb.model_validate(new_file)
         except IntegrityError:
             # Гонка: параллельная загрузка того же пути уже создала запись —
-            # возвращаем её (тот же дедуп, что и при os.path.exists выше)
+            # возвращаем существующую (idempotent create).
             existing = await FileDAO.find_one_or_none(
                 session=session, file_path=rel_path
             )
@@ -78,6 +79,7 @@ class FileManager:
         file_id: int,
         current_user: UserResponse,
     ) -> None:
+        """Проверить, что пользователь состоит в чате, где есть файл. Иначе NotFoundError."""
         chat_ids = await MessageDAO.list_chat_ids_by_file(
             session=session, file_id=file_id
         )
@@ -89,3 +91,21 @@ class FileManager:
         )
         if not user_chats:
             raise NotFoundError('Файл не найден')
+
+    @staticmethod
+    async def delete_chat_files(session: AsyncSession, chat_id: int) -> None:
+        """Удалить все файлы чата: строки из БД + физические файлы на диске.
+
+        Порядок: сначала строки File, потом диск.
+        Файлы на диске не удаляются, если транзакция откатится,
+        так как commit происходит на уровне роута.
+        """
+        files = await FileDAO.find_by_chat(session=session, chat_id=chat_id)
+        if not files:
+            return
+
+        rel_paths = [f.file_path for f in files]
+        await FileDAO.delete_by_chat(session=session, chat_id=chat_id)
+        logger.info('Удалено %d файлов чата: %s', len(rel_paths), chat_id)
+
+        await delete_files_from_disk(rel_paths)

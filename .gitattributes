@@ -1,0 +1,13 @@
+# Нормализуем переносы строк: в репозитории и в рабочей копии — LF.
+* text=auto eol=lf
+
+# Бинарные форматы — не трогаем переносы вообще
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

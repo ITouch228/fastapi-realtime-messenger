@@ -1,36 +1,50 @@
-.PHONY: help build up down down-v restart logs
+.PHONY: help build up down down-v restart logs dev dev-d prod prod-build
 .PHONY: migrate lint lint-front lint-back lint-fix format format-front format-back check quality
 
 # ========================================
 # DOCKER COMMANDS
 # ========================================
+# dev  — базовый compose + docker-compose.override.yml (bind-mount кода + --reload)
+# prod — базовый compose + docker-compose.prod.yml (только образ, без reload)
+
+dev:
+	docker compose up --build
+
+dev-d:
+	docker compose up -d --build
+
+prod:
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+prod-build:
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml build
 
 build:
-	docker-compose up --build
+	docker compose up --build
 
 build-d:
-	docker-compose up -d --build
+	docker compose up -d --build
 
 up:
-	docker-compose up -d
+	docker compose up -d
 
 down:
-	docker-compose down
+	docker compose down
 
 down-v:
-	docker-compose down -v
+	docker compose down -v
 
 restart: down up
 
 logs:
-	docker-compose logs -f
+	docker compose logs -f
 
 # ========================================
 # ALEMBIC (run via docker-compose exec)
 # ========================================
 
 migrate:
-	docker-compose exec backend alembic upgrade head
+	docker compose exec backend alembic upgrade head
 
 # ========================================
 # LINTING & CODE QUALITY (ruff + mypy + eslint + prettier)

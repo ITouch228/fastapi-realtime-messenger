@@ -2,7 +2,9 @@ import asyncio
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
+from app.config import settings
 from app.database import async_session_maker
+from app.exceptions import NotFoundError, UnauthorizedError
 from app.services import (
     SessionManager,
     UserManager,
@@ -17,8 +19,6 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix='/ws')
 
-HEARTBEAT_TIMEOUT = 25
-
 
 @router.websocket('/{user_id}')
 async def websocket_endpoint(
@@ -26,6 +26,7 @@ async def websocket_endpoint(
     user_id: int,
     session_manager: SessionManager = Depends(get_session_manager),
 ):
+    """WS-соединение пользователя: авторизация по cookie, ping-цикл, presence."""
     token = websocket.cookies.get('access')
     if not token:
         logger.warning('WS авторизация отклонена для пользователя: %s', user_id)
@@ -38,7 +39,15 @@ async def websocket_endpoint(
         return
 
     async with async_session_maker() as session:
-        if not await UserManager.get_active(session=session, user_id=user_id):
+        try:
+            await UserManager.get_active(session=session, user_id=user_id)
+        except (NotFoundError, UnauthorizedError):
+            # В WS нет HTTP exception handlers — перехватываем явно и рвём
+            # соединение аккуратным кодом 4404.
+            logger.warning(
+                'WS отклонён: пользователь недоступен (удалён/деактивирован): %s',
+                user_id,
+            )
             await websocket.close(code=4404)
             return
 
@@ -50,7 +59,9 @@ async def websocket_endpoint(
     try:
         while True:
             try:
-                await asyncio.wait_for(websocket.receive_text(), HEARTBEAT_TIMEOUT)
+                await asyncio.wait_for(
+                    websocket.receive_text(), settings.WS_HEARTBEAT_TIMEOUT
+                )
             except TimeoutError:
                 await websocket.send_json({'type': 'ping'})
     except (WebSocketDisconnect, OSError, RuntimeError) as exc:
@@ -58,12 +69,16 @@ async def websocket_endpoint(
         # закрыт (starlette поднимает RuntimeError при send в закрытый сокет)
         logger.info('WS-соединение закрыто: user_id=%s (%s)', user_id, exc)
     except (KeyError, TypeError, AttributeError):
-        # Баги в коде — логируем с traceback и поднимаем вверх
-        logger.critical('Неожиданная ошибка в WS-цикле', exc_info=True)
+        # Программный баг, а не обрыв связи: пробрасываем наверх (starlette
+        # закроет сокет кодом 1011), cleanup в finally выполнится в любом случае.
+        logger.critical(
+            'Неожиданная ошибка в WS-цикле: user_id=%s', user_id, exc_info=True
+        )
+        raise
     finally:
         # Отписка обязательна в любом случае, иначе соединение останется в
         # active_connections и пользователь «зависнет» в статусе онлайн
-        went_offline = manager.disconnect(websocket, user_id)
+        went_offline = await manager.disconnect(websocket, user_id)
         if went_offline:
             async with async_session_maker() as session:
                 await notify_offline(user_id, session)

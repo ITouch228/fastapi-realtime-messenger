@@ -6,6 +6,31 @@
 
 ---
 
+## v3.2 — Rate-limit за прокси, async-lock в WS, батч-presence, документация
+
+> Исправлена критическая проблема rate limiting за reverse proxy (N6): теперь
+> `X-Forwarded-For` доверяется только от доверенных IP/CIDR (`TRUSTED_PROXIES`),
+> прямой запрос не может подделать заголовок.
+>
+> `WebSocketManager` получил `asyncio.Lock` (M-F): все мутации `active_connections`
+> атомарны, `disconnect` стал async — гонки при параллельных connect/disconnect
+> одного пользователя исключены. `send_personal_message` под локом только снимает
+> список и отвязывает мёртвые; `send_json` без блокировки — медленный клиент не
+> стопорит остальных. Добавлен `send_to_users` (asyncio.gather) и `online_user_ids`.
+>
+> `notify_offline` оптимизирован (M9): адресаты берутся из памяти — если никто не
+> онлайн, `SELECT` по чатам не выполняется вовсе. Отправка батчем (`asyncio.gather`)
+> вместо цикла: время не растёт линейно от числа собеседников. Порядок изменён на
+> «прочитать адресатов → UPDATE + commit → разослать» — `presence_update` не
+> опережает зафиксированный `last_seen`.
+>
+> Заодно обновлены README (N21: убраны ссылки на удалённые `backend/.env`),
+> `.env.example` (добавлен `TRUSTED_PROXIES`), `docs/TODO.md` (закрыты N6/M-F/M9,
+> добавлены N17–N21 — локальность WS/presence/rate-limit для воркера, порядок
+> presence-событий, PATH в make lint).
+
+---
+
 ## v3.1 — Стабилизация: критические фиксы, безопасность файлов, конфиг, Redis-lifespan, CSRF-страницы
 
 > Крупный релиз: новый слой исключений, сервис presence, миграция `last_seen`,

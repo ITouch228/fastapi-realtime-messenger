@@ -6,6 +6,10 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+# Единый .env живёт в корне репозитория (родитель backend/). В контейнере
+# файла нет — настройки приходят как переменные окружения от docker-compose
+# (env_file: .env), pydantic-settings читает их из OS env.
+REPO_ROOT = BASE_DIR.parent
 STATIC_DIR = BASE_DIR / 'app' / 'static'
 TEMPLATES_DIR = BASE_DIR / 'app' / 'templates'
 FILES_ROOT = BASE_DIR / 'uploads'
@@ -51,8 +55,16 @@ class Settings(BaseSettings):
     REGISTER_RATE_LIMIT: str = Field(default='10/hour')
     LOGIN_RATE_LIMIT: str = Field(default='5/minute')
 
+    # Reverse proxy: X-Forwarded-For доверяем только этим адресам/подсетям.
+    # Пусто — заголовок не доверяется (прямое соединение).
+    # Для nginx в Docker: ["127.0.0.1", "172.16.0.0/12"] и т.п.
+    TRUSTED_PROXIES: list[str] = Field(default=[])
+
     # Messages
     MAX_MESSAGE_LENGTH: int = Field(default=10000)
+
+    # WebSocket: ожидание сообщения/пинга клиента до отправки heartbeat-ping
+    WS_HEARTBEAT_TIMEOUT: int = Field(default=25)
 
     # Files
     MAX_FILE_SIZE: int = Field(default=10 * 1024 * 1024)
@@ -73,8 +85,15 @@ class Settings(BaseSettings):
         }
     )
 
+    # Images: качество сжатия при сохранении и дефолты ресайза при отдаче
+    IMAGE_SAVE_QUALITY: int = Field(default=85)
+    IMAGE_QUALITY_MOBILE: int = Field(default=60)
+    IMAGE_QUALITY_DESKTOP: int = Field(default=80)
+    IMAGE_WIDTH_MOBILE: int = Field(default=800)
+    IMAGE_WIDTH_DESKTOP: int = Field(default=1200)
+
     model_config = SettingsConfigDict(
-        env_file=BASE_DIR / 'app' / '.env', env_file_encoding='utf-8', extra='ignore'
+        env_file=REPO_ROOT / '.env', env_file_encoding='utf-8', extra='ignore'
     )
 
     @property

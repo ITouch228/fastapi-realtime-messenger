@@ -21,6 +21,7 @@ class UserManager:
         email: str,
         hashed_password: str,
     ) -> UserInDB:
+        """Создать пользователя. Конфликт username/email → ConflictError."""
         try:
             user = await UserDAO.add(
                 session=session,
@@ -40,6 +41,7 @@ class UserManager:
 
     @staticmethod
     async def get(session: AsyncSession, user_id: int) -> UserResponse:
+        """Пользователь по id. Не найден → NotFoundError."""
         user = await UserDAO.find_one_or_none(session=session, id=user_id)
         if user is None:
             raise NotFoundError('Пользователь не найден')
@@ -48,13 +50,15 @@ class UserManager:
 
     @staticmethod
     async def get_by_login(session: AsyncSession, login: str) -> UserInDB | None:
+        """Пользователь по email|username без проверки активности. Не найден → None."""
         user = await UserDAO.find_by_login(session=session, login=login)
         if user is None:
             return None
         return UserInDB.model_validate(user)
 
     @staticmethod
-    async def get_active(session: AsyncSession, user_id: int) -> UserResponse | None:
+    async def get_active(session: AsyncSession, user_id: int) -> UserResponse:
+        """Активный пользователь по id. Не найден → NotFoundError, не активен → UnauthorizedError."""
         user = await UserDAO.find_one_or_none(session=session, id=user_id)
         if user is None:
             raise NotFoundError('Пользователь не найден')
@@ -68,6 +72,7 @@ class UserManager:
     async def search(
         session: AsyncSession, query: str, limit: int = 20
     ) -> list[UserResponse]:
+        """Поиск пользователей по подстроке username."""
         users = await UserDAO.search_by_username(
             session=session, query=query, limit=limit
         )
@@ -76,10 +81,12 @@ class UserManager:
 
     @staticmethod
     async def set_last_seen(session: AsyncSession, user_id: int, when) -> None:
+        """Обновить last_seen_at пользователя."""
         await UserDAO.update_last_seen(session=session, user_id=user_id, when=when)
 
     @staticmethod
     async def get_last_seen_map(
         session: AsyncSession, user_ids: list[int]
     ) -> dict[int, datetime | None]:
+        """last_seen_at для набора id: {user_id: last_seen_at}."""
         return await UserDAO.get_last_seen_map(session=session, user_ids=user_ids)

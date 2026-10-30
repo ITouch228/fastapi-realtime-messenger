@@ -11,10 +11,9 @@ from app.exceptions import (
     AppError,
     BadRequestError,
     NotFoundError,
-    PayloadTooLargeError,
     PermissionDeniedError,
 )
-from app.schemas import MessageResponse, UserResponse
+from app.schemas import ChatResponse, MessageResponse, UserResponse
 from app.services import (
     ChatManager,
     FileManager,
@@ -63,21 +62,15 @@ async def send_message(
                 session=session, user_a_id=current_user.id, user_b_id=peer_id
             )
             chat_id_int: int = created_chat.id
-            await manager.send_personal_message(
-                {
-                    'type': 'new_chat',
-                    'message': created_chat.model_dump(mode='json'),
-                },
-                peer_id,
-            )
-            # шлём и себе, чтобы клиент увидел новый чат
-            await manager.send_personal_message(
-                {
-                    'type': 'new_chat',
-                    'message': created_chat.model_dump(mode='json'),
-                },
-                current_user.id,
-            )
+            # payload собирается из валидированной схемы — как new_message
+            new_chat_payload = {
+                'type': 'new_chat',
+                'message': ChatResponse.model_validate(created_chat).model_dump(
+                    mode='json'
+                ),
+            }
+            # одному батчем: собеседнику и отправителю (клиент увидит новый чат)
+            await manager.send_to_users(new_chat_payload, [peer_id, current_user.id])
         else:
             try:
                 chat_id_int = int(chat_id)
@@ -96,9 +89,6 @@ async def send_message(
         # файл
         file_id: int | None = None
         if file:
-            if file.size and file.size > settings.MAX_FILE_SIZE:
-                raise PayloadTooLargeError(detail='Файл слишком большой')
-
             file_content = await file.read()
 
             # Уникальное имя на диске — предотвращает коллизию имён,
@@ -148,8 +138,7 @@ async def send_message(
             'message': message_response.model_dump(mode='json'),
             'client_id': client_id,
         }
-        for user in chat.users or []:
-            await manager.send_personal_message(payload, user)
+        await manager.send_to_users(payload, list(chat.users or []))
 
         return message_response
 

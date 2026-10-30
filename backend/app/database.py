@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
-    class_mapper,
     mapped_column,
 )
 
@@ -22,6 +21,7 @@ async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    """Зависимость FastAPI: сессия БД; откат на исключении, commit — на стороне роута."""
     async with async_session_maker() as session:
         try:
             yield session
@@ -44,7 +44,3 @@ class Base(AsyncAttrs, DeclarativeBase):
         server_default=func.now(),
         onupdate=func.now(),
     )
-
-    def to_dict(self) -> dict:
-        columns = class_mapper(self.__class__).columns
-        return {column.key: getattr(self, column.key) for column in columns}

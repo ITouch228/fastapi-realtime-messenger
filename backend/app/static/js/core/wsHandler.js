@@ -7,7 +7,7 @@ export function handleWebSocketMessage(message) {
   }
 
   switch (message.type) {
-    case 'new_chat':
+    case 'new_chat': {
       if (!message.message || typeof message.message !== 'object') {
         console.error('Invalid new_chat message structure:', message);
         return;
@@ -30,8 +30,9 @@ export function handleWebSocketMessage(message) {
         }
       }
       break;
+    }
 
-    case 'new_message':
+    case 'new_message': {
       if (!message.message || typeof message.message !== 'object') {
         console.error('Invalid new_message message structure:', message);
         return;
@@ -57,8 +58,9 @@ export function handleWebSocketMessage(message) {
         store.invalidateMessages(chatId);
       }
       break;
+    }
 
-    case 'presence_update':
+    case 'presence_update': {
       if (typeof message.online !== 'boolean') {
         console.error('Invalid presence_update:', message);
         return;
@@ -68,6 +70,7 @@ export function handleWebSocketMessage(message) {
         last_seen: message.last_seen || null,
       });
       break;
+    }
 
     default:
       console.warn('Unknown WS message type:', message.type);

@@ -1,0 +1,14 @@
+# DEV overlay. Подхватывается автоматически командой `docker compose up`.
+# Для продакшена запускать явно:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+services:
+  backend:
+    environment:
+      # включает --reload в entrypoint.sh
+      UVICORN_RELOAD: "1"
+    volumes:
+      # bind-mount кода: правка файлов на хосте сразу видна в контейнере,
+      # --reload перезапускает процесс. Не для продакшена.
+      - ./backend:/app
+    ports:
+      - '8000:8000'

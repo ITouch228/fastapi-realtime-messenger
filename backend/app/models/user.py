@@ -32,14 +32,3 @@ class User(Base):
         DateTime(timezone=True),
         nullable=True,
     )
-
-    def to_dict(self) -> dict:
-        return {
-            'id': self.id,
-            'email': self.email,
-            'username': self.username,
-            'is_active': self.is_active,
-            'is_superuser': self.is_superuser,
-            'last_login_at': self.last_login_at,
-            'last_seen_at': self.last_seen_at,
-        }

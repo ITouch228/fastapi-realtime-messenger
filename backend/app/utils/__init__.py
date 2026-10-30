@@ -7,6 +7,7 @@ from app.utils.cookies import (
 from app.utils.csrf import generate_csrf_token, require_csrf, set_csrf_cookie
 from app.utils.files import (
     compress_image_sync,
+    delete_files_from_disk,
     guess_mime_type,
     render_image_response,
     resolve_file_path,
@@ -31,6 +32,7 @@ __all__ = [
     'compress_image_sync',
     'create_access_token',
     'create_refresh_token',
+    'delete_files_from_disk',
     'delete_tokens_from_response_cookie',
     'generate_csrf_token',
     'require_csrf',

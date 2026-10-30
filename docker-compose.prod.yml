@@ -1,0 +1,12 @@
+# PROD overlay. Запускать явно (override-файл при этом НЕ подхватывается):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# В проде: без bind-mount кода (код только из образа), без --reload,
+# несколько воркеров uvicorn. Секреты (.env, keys/) не попадают в образ —
+# .env читается через env_file, ключи монтируются read-only volume из base.
+services:
+  backend:
+    restart: always
+    environment:
+      # reload выключен; N воркеров на ядро
+      UVICORN_WORKERS: "4"

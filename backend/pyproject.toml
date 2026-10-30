@@ -33,20 +33,5 @@ warn_unused_configs = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "migration.*"
-ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = [
-    "app.routes.*",
-    "app.services.files",
-    "app.services.messages",
-    "app.services.auth",
-    "app.services.users",
-    "app.services.chats",
-]
-disable_error_code = ["union-attr", "arg-type", "no-any-return", "assignment"]
-
-[[tool.mypy.overrides]]
 module = "aiofiles.*"
 ignore_missing_imports = true

@@ -45,7 +45,6 @@ git clone git@github.com:ITouch228/ITMessage.git
 cd ITMessage
 
 cp .env.example .env
-cp backend/.env.example backend/.env   # заполнить DB_PASSWORD, DB_NAME
 
 docker compose up --build -d
 ```
@@ -62,15 +61,15 @@ docker compose up --build -d
 > ```
 > Без ключей приложение упадёт при старте с `FileNotFoundError: .../keys/private.pem`.
 
-> **Локально по http:** задайте `COOKIE_SECURE=false` в `backend/.env`, иначе браузер не примет Secure-куки.
+> **Локально по http:** задайте `COOKIE_SECURE=false` в корневом `.env`, иначе браузер не примет Secure-куки.
 
 Без Docker (нужны локальные PostgreSQL и Redis):
 
 ```bash
-cd backend
 python -m venv .venv && .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r backend/requirements.txt
 cp .env.example .env   # заполнить DB_* и REDIS_URL
+cd backend
 alembic upgrade head
 uvicorn app.main:app --reload
 ```

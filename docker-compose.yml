@@ -40,14 +40,13 @@ services:
       context: ./backend
     container_name: messenger_backend
     restart: unless-stopped
+    # Единый корневой .env — DB_* и COOKIE_* приходят как переменные окружения,
+    # pydantic-settings читает их из OS env (файл в образ не попадает).
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      # Только то, что специфично для compose-сети (переопределяет .env)
       DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_NAME: ${DB_NAME}
       REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
@@ -55,10 +54,10 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./backend:/app
-      - ./backend/app/static:/app/app/static
-      - ./backend/app/templates:/app/app/templates
+      # uploads — изолированный volume, чтобы пережить пересоздание контейнера
       - uploads_data:/app/uploads
+      # RSA-ключи не попадают в образ (.dockerignore) — монтируются только в рантайме
+      - ./backend/keys:/app/keys:ro
     ports:
       - '8000:8000'
     networks:
