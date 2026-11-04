@@ -169,7 +169,7 @@ async def _prepare_image(extension: str, content: bytes) -> tuple[bytes, str]:
     def inspect() -> str | None:
         with Image.open(io.BytesIO(content)) as image:
             image.verify()
-            return image.format
+            return str(image.format) if image.format is not None else None
 
     try:
         actual_format = await run_in_threadpool(inspect)
