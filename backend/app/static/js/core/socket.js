@@ -88,11 +88,13 @@ function openSocket(userId, messageHandler) {
     };
 
     socket.onclose = (event) => {
-      // 4401/4404 — auth fail, переподключение бессмысленно
-      if (event.code === 4401 || event.code === 4404) {
+      // 4401/4404 — auth fail, 4403 — Origin запрещён. Повтор не поможет.
+      if ([4401, 4403, 4404].includes(event.code)) {
         updateStatus(
           WS_STATUS.DISCONNECTED,
-          'Сессия недействительна. Обновите страницу.',
+          event.code === 4403
+            ? 'Подключение запрещено для этого адреса страницы.'
+            : 'Сессия недействительна. Обновите страницу.',
         );
         return;
       }

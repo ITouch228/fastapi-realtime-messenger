@@ -20,6 +20,15 @@ logger = get_logger(__name__)
 router = APIRouter(prefix='/ws')
 
 
+def is_allowed_ws_origin(origin: str | None) -> bool:
+    """Разрешать WS только со страниц из явного списка доверенных origins.
+
+    Проверка выполняется до чтения cookie и до обращения к Redis/БД.
+    Отсутствующий Origin также отклоняется: браузеры передают его при WS handshake.
+    """
+    return origin is not None and origin in settings.ALLOWED_ORIGINS
+
+
 @router.websocket('/{user_id}')
 async def websocket_endpoint(
     websocket: WebSocket,
@@ -27,6 +36,11 @@ async def websocket_endpoint(
     session_manager: SessionManager = Depends(get_session_manager),
 ):
     """WS-соединение пользователя: авторизация по cookie, ping-цикл, presence."""
+    if not is_allowed_ws_origin(websocket.headers.get('origin')):
+        logger.warning('WS Origin отклонён для пользователя: %s', user_id)
+        await websocket.close(code=4403)
+        return
+
     token = websocket.cookies.get('access')
     if not token:
         logger.warning('WS авторизация отклонена для пользователя: %s', user_id)
