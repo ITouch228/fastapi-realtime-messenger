@@ -13,9 +13,10 @@ class PresenceRegistryTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(presence_registry, 'get_redis', return_value=redis):
             self.assertTrue(await presence_registry.join(17, 'tab-a'))
         args = redis.eval.await_args.args
-        self.assertEqual(args[1], 2)
+        self.assertEqual(args[1], 3)
         self.assertEqual(args[2], 'itmessage:presence:user:17')
         self.assertEqual(args[3], presence_registry.USERS_KEY)
+        self.assertEqual(args[4], presence_registry.VERSIONS_KEY)
 
     async def test_offline_transition_is_global(self):
         redis = AsyncMock()

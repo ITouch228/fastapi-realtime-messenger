@@ -13,6 +13,7 @@ from app.services.redis_client import get_redis
 
 LEASE_SECONDS = 90
 USERS_KEY = 'itmessage:presence:users'
+VERSIONS_KEY = 'itmessage:presence:versions'
 
 _JOIN = """
 local now = tonumber(redis.call('TIME')[1])
@@ -22,7 +23,10 @@ local was_offline = redis.call('ZCARD', KEYS[1]) == 0
 redis.call('ZADD', KEYS[1], expires, ARGV[1])
 redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]) * 2)
 redis.call('ZADD', KEYS[2], expires, ARGV[2])
-return was_offline and 1 or 0
+if was_offline then
+    return redis.call('HINCRBY', KEYS[3], ARGV[2], 1)
+end
+return 0
 """
 
 _LEAVE = """
@@ -32,7 +36,10 @@ redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
 local latest = redis.call('ZREVRANGE', KEYS[1], 0, 0, 'WITHSCORES')
 if #latest == 0 then
     redis.call('ZREM', KEYS[2], ARGV[2])
-    return removed == 1 and 1 or 0
+    if removed == 1 then
+        return redis.call('HINCRBY', KEYS[3], ARGV[2], 1)
+    end
+    return 0
 end
 redis.call('ZADD', KEYS[2], latest[2], ARGV[2])
 return 0
@@ -73,28 +80,35 @@ def _user_key(user_id: int) -> str:
     return f'itmessage:presence:user:{user_id}'
 
 
-async def join(user_id: int, connection_id: str) -> bool:
-    """Зарегистрировать вкладку. True только при глобальном переходе offline → online."""
+async def join(user_id: int, connection_id: str) -> int:
+    """Вернуть версию перехода offline → online, или 0 для дополнительной вкладки."""
     redis = await get_redis()
     command = redis.eval(
         _JOIN,
-        2,
+        3,
         _user_key(user_id),
         USERS_KEY,
+        VERSIONS_KEY,
         connection_id,
         str(user_id),
         str(LEASE_SECONDS),
     )
-    return bool(await cast('Awaitable[int]', command))
+    return int(await cast('Awaitable[int]', command))
 
 
-async def leave(user_id: int, connection_id: str) -> bool:
-    """Удалить вкладку. True только при глобальном переходе online → offline."""
+async def leave(user_id: int, connection_id: str) -> int:
+    """Вернуть версию перехода online → offline, иначе 0."""
     redis = await get_redis()
     command = redis.eval(
-        _LEAVE, 2, _user_key(user_id), USERS_KEY, connection_id, str(user_id)
+        _LEAVE,
+        3,
+        _user_key(user_id),
+        USERS_KEY,
+        VERSIONS_KEY,
+        connection_id,
+        str(user_id),
     )
-    return bool(await cast('Awaitable[int]', command))
+    return int(await cast('Awaitable[int]', command))
 
 
 async def refresh(user_id: int, connection_id: str) -> bool:

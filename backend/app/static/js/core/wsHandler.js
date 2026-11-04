@@ -61,13 +61,18 @@ export function handleWebSocketMessage(message) {
     }
 
     case 'presence_update': {
-      if (typeof message.online !== 'boolean') {
+      if (
+        typeof message.online !== 'boolean' ||
+        !Number.isSafeInteger(message.version) ||
+        message.version < 1
+      ) {
         console.error('Invalid presence_update:', message);
         return;
       }
       store.setPeerStatus(message.user_id, {
         online: message.online,
         last_seen: message.last_seen || null,
+        version: message.version,
       });
       break;
     }

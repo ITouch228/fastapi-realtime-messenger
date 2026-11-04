@@ -47,7 +47,7 @@ async def _cleanup_connection(websocket: WebSocket, user_id: int) -> None:
         return
     if went_offline:
         async with async_session_maker() as session:
-            await notify_offline(user_id, session)
+            await notify_offline(user_id, session, went_offline)
 
 
 @router.websocket('/{user_id}')
@@ -90,7 +90,7 @@ async def websocket_endpoint(
     try:
         if came_online:
             async with async_session_maker() as session:
-                await notify_online(user_id, session)
+                await notify_online(user_id, session, came_online)
 
         while True:
             try:

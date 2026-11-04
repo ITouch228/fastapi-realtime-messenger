@@ -120,15 +120,15 @@ class WebSocketManager:
             *(self.send_personal_message(message, user_id) for user_id in recipients)
         )
 
-    async def connect(self, websocket: WebSocket, user_id: int) -> bool:
-        """Создать аренду Redis и сохранить сокет в локальной памяти воркера."""
+    async def connect(self, websocket: WebSocket, user_id: int) -> int:
+        """Создать аренду Redis; вернуть версию глобального перехода или 0."""
         await websocket.accept()
         token = presence_registry.new_connection_id()
-        came_online = await presence_registry.join(user_id, token)
+        version = await presence_registry.join(user_id, token)
         async with self._lock:
             self.active_connections.setdefault(user_id, []).append(websocket)
             self._connection_ids[id(websocket)] = token
-        return came_online
+        return version
 
     def _detach(self, websocket: WebSocket, user_id: int) -> str | None:
         """Отвязать локальный сокет и вернуть Redis-токен (под локом)."""
@@ -140,8 +140,8 @@ class WebSocketManager:
                 self.active_connections.pop(user_id, None)
         return token
 
-    async def disconnect(self, websocket: WebSocket, user_id: int) -> bool:
-        """Снять аренду. Событие offline только при последней вкладке глобально."""
+    async def disconnect(self, websocket: WebSocket, user_id: int) -> int:
+        """Снять аренду; вернуть версию offline при последней вкладке."""
         async with self._lock:
             token = self._detach(websocket, user_id)
         if token is None:

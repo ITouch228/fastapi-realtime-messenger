@@ -22,19 +22,24 @@ async def _online_peers(user_id: int, session: AsyncSession) -> list[int]:
     return [peer_id for peer_id in peers if peer_id in online]
 
 
-async def notify_online(user_id: int, session: AsyncSession) -> None:
+async def notify_online(user_id: int, session: AsyncSession, version: int) -> None:
     """Разослать собеседникам статус «пользователь появился в сети»."""
     targets = await _online_peers(user_id, session)
     if not targets:
         return
 
     await manager.send_to_users(
-        {'type': 'presence_update', 'user_id': user_id, 'online': True},
+        {
+            'type': 'presence_update',
+            'user_id': user_id,
+            'online': True,
+            'version': version,
+        },
         targets,
     )
 
 
-async def notify_offline(user_id: int, session: AsyncSession) -> None:
+async def notify_offline(user_id: int, session: AsyncSession, version: int) -> None:
     """Обновить last_seen_at и разослать статус «пользователь ушёл в сеть».
 
     Порядок: прочитать адресатов → записать last_seen и закоммитить →
@@ -57,6 +62,7 @@ async def notify_offline(user_id: int, session: AsyncSession) -> None:
             'user_id': user_id,
             'online': False,
             'last_seen': last_seen.isoformat(),
+            'version': version,
         },
         targets,
     )
