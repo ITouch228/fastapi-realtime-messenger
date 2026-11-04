@@ -27,6 +27,28 @@ logger = get_logger(__name__)
 router = APIRouter(prefix='/messages')
 
 
+async def _publish_message_events(
+    new_chat_payload: dict | None,
+    peer_id: int | None,
+    sender_id: int,
+    chat_users: list[int],
+    message_response: MessageResponse,
+    client_id: str | None,
+) -> None:
+    """Публиковать изменения только после успешного PostgreSQL commit."""
+    if new_chat_payload is not None and peer_id is not None:
+        await manager.send_to_users(new_chat_payload, [peer_id, sender_id])
+
+    await manager.send_to_users(
+        {
+            'type': 'new_message',
+            'message': message_response.model_dump(mode='json'),
+            'client_id': client_id,
+        },
+        chat_users,
+    )
+
+
 @router.get('/{chat_id}', response_model=list[MessageResponse])
 async def get_chat_messages(
     chat_id: int,
@@ -127,18 +149,14 @@ async def send_message(
         await session.commit()
         committed = True
 
-        # Объявляем новый чат только после успешной фиксации в PostgreSQL.
-        if new_chat_payload is not None:
-            await manager.send_to_users(new_chat_payload, [peer_id, current_user.id])
-
-        # new_message шлём всем участникам, включая отправителя:
-        # client_id позволяет клиенту надёжно подтвердить оптимистичное сообщение
-        payload = {
-            'type': 'new_message',
-            'message': message_response.model_dump(mode='json'),
-            'client_id': client_id,
-        }
-        await manager.send_to_users(payload, list(chat.users or []))
+        await _publish_message_events(
+            new_chat_payload,
+            peer_id,
+            current_user.id,
+            list(chat.users or []),
+            message_response,
+            client_id,
+        )
 
         return message_response
 
