@@ -63,6 +63,10 @@ jobs:
         working-directory: backend
         run: ruff check .
 
+      - name: Ruff formatting diagnostic
+        working-directory: backend
+        run: ruff format --diff app/utils/files.py tests/test_attachment_storage.py || true
+
       - name: Ruff formatting
         working-directory: backend
         run: ruff format --check .
