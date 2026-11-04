@@ -63,7 +63,9 @@ class AttachmentStorageTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.mime_type, Image.MIME[image.format])
         self.assertEqual(result.size_bytes, stored.stat().st_size)
         self.assertEqual(result.original_name, 'photo.jpg')
-        self.assertEqual(stored.suffix, '.' + ('jpg' if result.mime_type == 'image/jpeg' else 'webp'))
+        self.assertEqual(
+            stored.suffix, '.' + ('jpg' if result.mime_type == 'image/jpeg' else 'webp')
+        )
 
     async def test_mismatched_image_extension_is_rejected(self):
         source = io.BytesIO()
