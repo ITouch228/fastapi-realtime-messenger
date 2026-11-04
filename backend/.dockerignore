@@ -1,0 +1,23 @@
+# Контекст сборки backend: секреты доступны только через runtime mount.
+keys/
+**/*.pem
+**/*.key
+**/*.crt
+.env
+.env.*
+*.env
+uploads/
+logs/
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.git/
+.gitignore
+.idea/
+.vscode/
+*.log
