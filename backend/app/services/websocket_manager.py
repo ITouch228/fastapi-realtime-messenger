@@ -63,12 +63,12 @@ class WebSocketManager:
             self._pubsub = None
 
     async def _listen(self) -> None:
-        """Каждый воркер получает события и доставляет своим вкладкам."""
+        """Переподключать Pub/Sub при сетевом сбое или закрытии подписки."""
         while True:
             try:
                 pubsub = self._pubsub
                 if pubsub is None:
-                    raise RuntimeError('Подписка Redis не инициализирована')
+                    return
                 async for event in pubsub.listen():
                     if event['type'] != 'message':
                         continue
@@ -80,19 +80,37 @@ class WebSocketManager:
             except asyncio.CancelledError:
                 raise
             except (RedisError, OSError):
-                logger.exception('Redis Pub/Sub недоступен, повтор через 1 секунду')
-                await asyncio.sleep(1)
+                logger.exception('Потеряна подписка WebSocket Redis Pub/Sub')
+
+            # Ошибка может произойти на любом этапе восстановления, включая
+            # получение клиента и закрытие старой подписки. Не допускаем
+            # завершения фоновой задачи из-за повторного сбоя Redis.
+            await asyncio.sleep(1)
+            replacement = None
+            try:
                 redis = await get_redis()
                 replacement = redis.pubsub()
-                try:
-                    await replacement.subscribe(WS_EVENTS_CHANNEL)
-                except (RedisError, OSError):
+                await replacement.subscribe(WS_EVENTS_CHANNEL)
+            except asyncio.CancelledError:
+                if replacement is not None:
                     await replacement.aclose()
-                    continue
-                old = self._pubsub
-                self._pubsub = replacement
-                if old is not None:
+                raise
+            except (RedisError, OSError, RuntimeError):
+                logger.exception('Повторная подписка Redis недоступна')
+                if replacement is not None:
+                    try:
+                        await replacement.aclose()
+                    except (RedisError, OSError):
+                        logger.warning('Не удалось закрыть неактивную подписку Redis')
+                continue
+
+            old = self._pubsub
+            self._pubsub = replacement
+            if old is not None:
+                try:
                     await old.aclose()
+                except (RedisError, OSError):
+                    logger.warning('Не удалось закрыть старую подписку Redis')
 
     async def _deliver_event(self, envelope: dict) -> None:
         """Обработать событие из Redis без повторной публикации."""
@@ -162,20 +180,28 @@ class WebSocketManager:
             # Прочие ошибки (например, TypeError при невалидном payload)
             # пробрасываются: это баг в коде вызывающего, а не обрыв связи
         for conn in dead:
-            await self.disconnect(conn, user_id)
+            try:
+                await self.disconnect(conn, user_id)
+            except (RedisError, OSError):
+                # Сокет уже удалён из локального реестра; оставшаяся
+                # Redis-аренда истечёт по TTL после восстановления сервиса.
+                logger.warning(
+                    'Не удалось снять аренду отключённой вкладки user_id=%s',
+                    user_id,
+                )
 
     async def send_to_users(self, message: dict, user_ids: list[int]) -> None:
         """Передать событие всем воркерам через Redis Pub/Sub.
 
         Каждый воркер доставит его локальным вкладкам адресатов. При сбое
-        публикации исключение пробрасывается вызывающему коду.
+        публикации ошибка логируется: коммит в БД уже мог завершиться.
         """
         recipients = sorted(set(user_ids))
         if not recipients:
             return
-        redis = await get_redis()
         envelope = {'user_ids': recipients, 'payload': message}
         try:
+            redis = await get_redis()
             await redis.publish(WS_EVENTS_CHANNEL, json.dumps(envelope))
         except (RedisError, OSError):
             # Сообщение уже может быть зафиксировано в PostgreSQL.

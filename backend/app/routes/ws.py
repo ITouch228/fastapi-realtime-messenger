@@ -1,6 +1,8 @@
 import asyncio
+from contextlib import suppress
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from redis.exceptions import RedisError
 
 from app.config import settings
 from app.database import async_session_maker
@@ -27,6 +29,25 @@ def is_allowed_ws_origin(origin: str | None) -> bool:
     Отсутствующий Origin также отклоняется: браузеры передают его при WS handshake.
     """
     return origin is not None and origin in settings.ALLOWED_ORIGINS
+
+
+async def _close_for_redis_failure(websocket: WebSocket, user_id: int) -> None:
+    """Закрыть соединение при потере Redis, не скрывая ошибку закрытого сокета."""
+    logger.warning('Redis недоступен в WS-цикле: user_id=%s', user_id)
+    with suppress(WebSocketDisconnect, OSError, RuntimeError):
+        await websocket.close(code=1012)
+
+
+async def _cleanup_connection(websocket: WebSocket, user_id: int) -> None:
+    """Отключить локальную вкладку; Redis-аренда истечёт по TTL при сбое."""
+    try:
+        went_offline = await manager.disconnect(websocket, user_id)
+    except (RedisError, OSError):
+        logger.warning('Не удалось снять Redis-аренду: user_id=%s', user_id)
+        return
+    if went_offline:
+        async with async_session_maker() as session:
+            await notify_offline(user_id, session)
 
 
 @router.websocket('/{user_id}')
@@ -82,6 +103,8 @@ async def websocket_endpoint(
                 logger.warning('WS-аренда истекла: user_id=%s', user_id)
                 await websocket.close(code=1012)
                 break
+    except RedisError:
+        await _close_for_redis_failure(websocket, user_id)
     except (WebSocketDisconnect, OSError, RuntimeError) as exc:
         # Штатный обрыв: клиент закрыл вкладку, сеть пропала, сокет уже
         # закрыт (starlette поднимает RuntimeError при send в закрытый сокет)
@@ -94,9 +117,4 @@ async def websocket_endpoint(
         )
         raise
     finally:
-        # Отписка обязательна в любом случае, иначе соединение останется в
-        # active_connections и пользователь «зависнет» в статусе онлайн
-        went_offline = await manager.disconnect(websocket, user_id)
-        if went_offline:
-            async with async_session_maker() as session:
-                await notify_offline(user_id, session)
+        await _cleanup_connection(websocket, user_id)
