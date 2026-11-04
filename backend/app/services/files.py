@@ -93,19 +93,32 @@ class FileManager:
             raise NotFoundError('Файл не найден')
 
     @staticmethod
-    async def delete_chat_files(session: AsyncSession, chat_id: int) -> None:
-        """Удалить все файлы чата: строки из БД + физические файлы на диске.
+    async def delete_chat_files(session: AsyncSession, chat_id: int) -> list[str]:
+        """Удалить записи File в текущей транзакции и вернуть пути для cleanup.
 
-        Порядок: сначала строки File, потом диск.
-        Файлы на диске не удаляются, если транзакция откатится,
-        так как commit происходит на уровне роута.
+        Физические файлы удаляются только ПОСЛЕ успешного commit вызывающим
+        кодом. При rollback записи и вложения остаются доступными.
         """
         files = await FileDAO.find_by_chat(session=session, chat_id=chat_id)
         if not files:
-            return
+            return []
 
         rel_paths = [f.file_path for f in files]
         await FileDAO.delete_by_chat(session=session, chat_id=chat_id)
         logger.info('Удалено %d файлов чата: %s', len(rel_paths), chat_id)
 
-        await delete_files_from_disk(rel_paths)
+        return rel_paths
+
+    @staticmethod
+    async def cleanup_deleted_chat_files(rel_paths: list[str]) -> None:
+        """Best-effort очистка диска после commit; сбой не отменяет удаление чата."""
+        if not rel_paths:
+            return
+        try:
+            await delete_files_from_disk(rel_paths)
+        except Exception:
+            logger.exception(
+                'Не удалось очистить %d файлов после удаления чата; '
+                'требуется повторная очистка осиротевших файлов',
+                len(rel_paths),
+            )

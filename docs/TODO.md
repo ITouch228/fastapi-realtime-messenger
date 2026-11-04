@@ -11,7 +11,9 @@
 
 **Файлы:** `services/chats.py`, `services/files.py`, `dao/dao.py`, `utils/files.py`
 
-**Фикс (2026-10-23):** `FileManager.delete_chat_files` — перед удалением чата находит все файлы по префиксу `file_path LIKE '{chat_id}/%'`, удаляет строки из БД (`FileDAO.delete_by_chat`), затем удаляет физические файлы с диска (`delete_files_from_disk`). commit на уровне роута — при откате транзакции физически файлы ещё не будут удалены.
+**Фикс (2026-11-04, PR #3):** `FileManager.delete_chat_files` удаляет только строки в транзакции и возвращает пути файлов. После `ChatManager.delete` роут выполняет `session.commit()`, и лишь затем вызывает `FileManager.cleanup_deleted_chat_files`. При ошибке commit физические файлы остаются на диске; ошибка cleanup после commit логируется и не меняет уже успешный ответ HTTP.
+
+**Ограничение:** если процесс остановится между commit и cleanup либо диск недоступен, остаются осиротевшие файлы. Для строгой гарантии очистки потребуется durable cleanup queue/outbox с повторными попытками и периодической сверкой.
 
 ---
 
