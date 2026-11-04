@@ -19,10 +19,6 @@ temp/
 migration/versions/*.pyc
 
 *.pid
-.dockerignore
-
-*.pid
-.dockerignore
 
 .DS_Store
 Thumbs.db
