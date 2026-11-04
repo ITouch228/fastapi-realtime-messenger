@@ -172,7 +172,12 @@ class WebSocketManager:
             return
         redis = await get_redis()
         envelope = {'user_ids': recipients, 'payload': message}
-        await redis.publish(WS_EVENTS_CHANNEL, json.dumps(envelope))
+        try:
+            await redis.publish(WS_EVENTS_CHANNEL, json.dumps(envelope))
+        except (RedisError, OSError):
+            # Сообщение уже может быть зафиксировано в PostgreSQL.
+            # Ошибка Pub/Sub не должна вынуждать клиента повторно отправлять его.
+            logger.exception('Не удалось опубликовать WebSocket-событие в Redis')
 
     async def broadcast(
         self, message: dict, exclude_user_ids: list[int] | None = None
