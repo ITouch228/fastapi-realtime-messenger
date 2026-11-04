@@ -66,11 +66,11 @@ async def websocket_endpoint(
             return
 
     came_online = await manager.connect(websocket, user_id)
-    if came_online:
-        async with async_session_maker() as session:
-            await notify_online(user_id, session)
-
     try:
+        if came_online:
+            async with async_session_maker() as session:
+                await notify_online(user_id, session)
+
         while True:
             try:
                 await asyncio.wait_for(
@@ -78,6 +78,10 @@ async def websocket_endpoint(
                 )
             except TimeoutError:
                 await websocket.send_json({'type': 'ping'})
+            if not await manager.touch(websocket, user_id):
+                logger.warning('WS-аренда истекла: user_id=%s', user_id)
+                await websocket.close(code=1012)
+                break
     except (WebSocketDisconnect, OSError, RuntimeError) as exc:
         # Штатный обрыв: клиент закрыл вкладку, сеть пропала, сокет уже
         # закрыт (starlette поднимает RuntimeError при send в закрытый сокет)
