@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import FILES_ROOT
 from app.dao import ChatDAO, FileDAO, MessageDAO
+from app.models.file_cleanup_task import FileCleanupTask
 from app.exceptions import AppError, BadRequestError, ConflictError, NotFoundError
 from app.schemas import FileInDb, UserResponse
 from app.utils import delete_files_from_disk, get_logger
@@ -104,6 +105,9 @@ class FileManager:
             return []
 
         rel_paths = [f.file_path for f in files]
+        # Outbox вставляется в той же DB-транзакции, что и DELETE.
+        # После успешного commit задачи переживут остановку Uvicorn.
+        session.add_all(FileCleanupTask(file_path=path) for path in rel_paths)
         await FileDAO.delete_by_chat(session=session, chat_id=chat_id)
         logger.info('Удалено %d файлов чата: %s', len(rel_paths), chat_id)
 
@@ -123,16 +127,3 @@ class FileManager:
                 'Не удалось убрать новое вложение после отката: %s', rel_path
             )
 
-    @staticmethod
-    async def cleanup_deleted_chat_files(rel_paths: list[str]) -> None:
-        """Best-effort очистка диска после commit; сбой не отменяет удаление чата."""
-        if not rel_paths:
-            return
-        try:
-            await delete_files_from_disk(rel_paths)
-        except Exception:
-            logger.exception(
-                'Не удалось очистить %d файлов после удаления чата; '
-                'требуется повторная очистка осиротевших файлов',
-                len(rel_paths),
-            )
