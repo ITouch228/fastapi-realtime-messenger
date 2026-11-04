@@ -126,4 +126,3 @@ class FileManager:
             logger.exception(
                 'Не удалось убрать новое вложение после отката: %s', rel_path
             )
-
