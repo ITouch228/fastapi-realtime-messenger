@@ -1,5 +1,6 @@
 import store from '/static/js/core/store.js';
 import { connectWebSocket } from '/static/js/core/socket.js';
+import { WS_STATUS } from '/static/js/core/constants.js';
 import { handleWebSocketMessage } from '/static/js/core/wsHandler.js';
 import { getCurrentUser, logout } from '/static/js/features/auth.js';
 import {
@@ -30,7 +31,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // ─── Данные и сокет ───────────────────────────────────────────
   loadChats();
-  connectWebSocket(user.id, handleWebSocketMessage, updateWsStatus);
+  let connectedBefore = false;
+  connectWebSocket(user.id, handleWebSocketMessage, async (status, detail) => {
+    updateWsStatus(status, detail);
+    if (status !== WS_STATUS.CONNECTED) return;
+    if (!connectedBefore) {
+      connectedBefore = true;
+      return;
+    }
+
+    // Pub/Sub не хранит сообщения: после обрыва сверяем состояние с PostgreSQL.
+    store.peerStatuses = {};
+    await loadChats();
+    const activeId = store.ui.activeChatId;
+    if (activeId !== null && !store.isTempChat(activeId)) {
+      store.invalidateMessages(activeId);
+      await loadChatMessages(activeId);
+    }
+  });
 
   // ─── Подписки на store ────────────────────────────────────────
 

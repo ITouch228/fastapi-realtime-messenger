@@ -18,6 +18,16 @@ jobs:
     name: Python 3.12 / lint, types, tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
 
     steps:
       - name: Checkout
@@ -50,6 +60,13 @@ jobs:
       - name: Unit tests
         working-directory: backend
         run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Redis multiworker integration tests
+        working-directory: backend
+        env:
+          REDIS_INTEGRATION_TESTS: '1'
+          REDIS_INTEGRATION_URL: redis://localhost:6379/15
+        run: python -m unittest discover -s tests -p 'test_integration_*.py' -v
 
   frontend:
     name: Node 22 / ESLint, Prettier
