@@ -41,9 +41,7 @@ async def delete_chat(
     session: AsyncSession = Depends(get_session),
     _: None = Depends(require_csrf),
 ):
-    await ChatManager.delete(
-        chat_id=chat_id, user_id=current_user.id, session=session
-    )
+    await ChatManager.delete(chat_id=chat_id, user_id=current_user.id, session=session)
     await session.commit()
     # После commit очередь уже долговременна. Попытаемся очистить сразу,
     # но любая ошибка обработки не меняет успешный HTTP-ответ.
