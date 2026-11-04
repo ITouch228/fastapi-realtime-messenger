@@ -1,6 +1,7 @@
 """Проверки межпроцессной маршрутизации WebSocket через Redis."""
 
 import asyncio
+from contextlib import suppress
 import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -94,10 +95,8 @@ class RedisRelayTests(unittest.IsolatedAsyncioTestCase):
                 second.subscribe.assert_awaited_once_with(WS_EVENTS_CHANNEL)
             finally:
                 task.cancel()
-                try:
+                with suppress(asyncio.CancelledError):
                     await task
-                except asyncio.CancelledError:
-                    pass
 
     async def test_empty_recipients_do_not_publish(self):
         manager = WebSocketManager()
