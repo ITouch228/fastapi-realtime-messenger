@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from jose import jwt
 from jose.exceptions import ExpiredSignatureError, JWTError
@@ -18,7 +19,7 @@ def create_access_token(session_id: str, expires_delta: timedelta | None = None)
     encoded_jwt = jwt.encode(
         to_encode, settings.PRIVATE_KEY, algorithm=settings.ALGORITHM
     )
-    return encoded_jwt
+    return cast('str', encoded_jwt)
 
 
 def create_refresh_token(session_id: str) -> str:
@@ -28,7 +29,7 @@ def create_refresh_token(session_id: str) -> str:
     encode_jwt = jwt.encode(
         to_encode, settings.PRIVATE_KEY, algorithm=settings.ALGORITHM
     )
-    return encode_jwt
+    return cast('str', encode_jwt)
 
 
 def verify_token(token: str, token_type: str = 'access') -> str | None:
