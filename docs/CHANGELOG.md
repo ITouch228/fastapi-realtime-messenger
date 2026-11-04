@@ -1,8 +1,28 @@
 # CHANGELOG ITMessage
 
-Список всех изменений и исправлений. Один блок — один коммит.
-Полная детализация проблем — в `docs/architecture.md` (§7 фиксы)
-и `docs/data_flow.md` (флоу). Открытые задачи — в [`docs/TODO.md`](TODO.md).
+История изменений по выпускам и squash-PR. Сохранены исходные записи ранних релизов; актуальные схемы и потоки вынесены в [architecture.md](architecture.md) и [data_flow.md](data_flow.md). Открытые проблемы — [TODO.md](TODO.md).
+
+## После v3.2 — стабилизация и инфраструктура (PR #1–#13, 2026-11-04)
+
+| PR | Изменение |
+| --- | --- |
+| #1 | Проверка WebSocket Origin до авторизации |
+| #2 | CI quality gates: Ruff, mypy, ESLint, Prettier |
+| #3 | Удаление физических вложений только после DB commit |
+| #4 | Автоформатирование Ruff в pre-commit |
+| #5 | Redis как общее хранилище rate limits |
+| #6 | Redis Pub/Sub для событий WebSocket между процессами |
+| #7 | Распределённый online/offline presence через Redis ZSET и TTL |
+| #8 | Интеграционные multiworker-тесты, синхронизация после WS reconnect |
+| #9 | Исправлен импорт CSRF на страницах login/register без Axios |
+| #10 | `backend/.dockerignore` исключает секреты и локальные данные из образа |
+| #11 | Безопасные миграции PostgreSQL и полный HTTP smoke с БД и Redis |
+| #12 | Docker Compose smoke на четырёх Uvicorn-воркерах, RSA и рестарте |
+| #13 | Повторные подписки Redis Pub/Sub и обработка ошибок WS/публикации |
+
+**Текущее состояние:** один `.github/workflows/ci.yml` с независимыми Python, Frontend и Docker Compose jobs. `UVICORN_WORKERS=4` сохранено; линейная история PR через Squash and merge. Документы и графы обновляются отдельным housekeeping-PR без изменения функциональности.
+
+**Нерешённые ограничения:** Pub/Sub не хранит события при сбоях; возможна гонка порядка `presence_update` (N19); физическая очистка файлов после commit не имеет durable queue; браузерный E2E пока не автоматизирован.
 
 ---
 
