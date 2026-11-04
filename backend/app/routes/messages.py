@@ -57,6 +57,7 @@ async def send_message(
         sent_at = datetime.now(UTC)
 
         # Создание нового чата: peer_id в FormData → ChatManager.create
+        new_chat_payload: dict | None = None
         if peer_id is not None:
             created_chat = await ChatManager.create(
                 session=session, user_a_id=current_user.id, user_b_id=peer_id
@@ -69,8 +70,6 @@ async def send_message(
                     mode='json'
                 ),
             }
-            # одному батчем: собеседнику и отправителю (клиент увидит новый чат)
-            await manager.send_to_users(new_chat_payload, [peer_id, current_user.id])
         else:
             try:
                 chat_id_int = int(chat_id)
@@ -130,6 +129,10 @@ async def send_message(
         )
 
         await session.commit()
+
+        # Объявляем новый чат только после успешной фиксации в PostgreSQL.
+        if new_chat_payload is not None:
+            await manager.send_to_users(new_chat_payload, [peer_id, current_user.id])
 
         # new_message шлём всем участникам, включая отправителя:
         # client_id позволяет клиенту надёжно подтвердить оптимистичное сообщение

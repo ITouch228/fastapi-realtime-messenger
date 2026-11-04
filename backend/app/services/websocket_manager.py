@@ -1,6 +1,17 @@
 import asyncio
+import json
+from contextlib import suppress
 
 from fastapi import WebSocket, WebSocketDisconnect
+from redis.asyncio.client import PubSub
+from redis.exceptions import RedisError
+
+from app.services.redis_client import get_redis
+from app.utils import get_logger
+
+logger = get_logger(__name__)
+
+WS_EVENTS_CHANNEL = 'itmessage:ws:events'
 
 
 class WebSocketManager:
@@ -20,6 +31,74 @@ class WebSocketManager:
     def __init__(self) -> None:
         self.active_connections: dict[int, list[WebSocket]] = {}
         self._lock = asyncio.Lock()
+        self._subscriber: asyncio.Task[None] | None = None
+        self._pubsub: PubSub | None = None
+
+    async def start(self) -> None:
+        """Подписаться до приёма HTTP/WS, чтобы не терять первые события."""
+        if self._subscriber is not None:
+            return
+        redis = await get_redis()
+        pubsub = redis.pubsub()
+        try:
+            await pubsub.subscribe(WS_EVENTS_CHANNEL)
+        except Exception:
+            await pubsub.aclose()
+            raise
+        self._pubsub = pubsub
+        self._subscriber = asyncio.create_task(self._listen(), name='ws-redis-relay')
+
+    async def stop(self) -> None:
+        """Остановить подписку до закрытия Redis-пула."""
+        task = self._subscriber
+        self._subscriber = None
+        if task is not None:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        if self._pubsub is not None:
+            await self._pubsub.aclose()
+            self._pubsub = None
+
+    async def _listen(self) -> None:
+        """Каждый воркер получает события и доставляет своим вкладкам."""
+        while True:
+            try:
+                pubsub = self._pubsub
+                if pubsub is None:
+                    raise RuntimeError('Подписка Redis не инициализирована')
+                async for event in pubsub.listen():
+                    if event['type'] != 'message':
+                        continue
+                    try:
+                        envelope = json.loads(event['data'])
+                        await self._deliver_event(envelope)
+                    except (ValueError, TypeError, KeyError):
+                        logger.exception('Некорректное WebSocket-событие Redis')
+            except asyncio.CancelledError:
+                raise
+            except (RedisError, OSError):
+                logger.exception('Redis Pub/Sub недоступен, повтор через 1 секунду')
+                await asyncio.sleep(1)
+                redis = await get_redis()
+                replacement = redis.pubsub()
+                try:
+                    await replacement.subscribe(WS_EVENTS_CHANNEL)
+                except (RedisError, OSError):
+                    await replacement.aclose()
+                    continue
+                old = self._pubsub
+                self._pubsub = replacement
+                if old is not None:
+                    await old.aclose()
+
+    async def _deliver_event(self, envelope: dict) -> None:
+        """Обработать событие из Redis без повторной публикации."""
+        recipients = envelope['user_ids']
+        message = envelope['payload']
+        await asyncio.gather(
+            *(self.send_personal_message(message, user_id) for user_id in recipients)
+        )
 
     async def connect(self, websocket: WebSocket, user_id: int) -> bool:
         """Принять соединение. True, если у пользователя не было других вкладок."""
@@ -83,14 +162,22 @@ class WebSocketManager:
                     self._detach(conn, user_id)
 
     async def send_to_users(self, message: dict, user_ids: list[int]) -> None:
-        """Отправить payload набору пользователей параллельно (батчем).
+        """Передать событие всем воркерам через Redis Pub/Sub.
 
-        Отправки идут одновременно, а не одна за другой: время рассылки
-        больше не растёт линейно от числа получателей.
+        Каждый воркер доставит его локальным вкладкам адресатов. При сбое
+        публикации исключение пробрасывается вызывающему коду.
         """
-        await asyncio.gather(
-            *(self.send_personal_message(message, user_id) for user_id in user_ids)
-        )
+        recipients = sorted(set(user_ids))
+        if not recipients:
+            return
+        redis = await get_redis()
+        envelope = {'user_ids': recipients, 'payload': message}
+        try:
+            await redis.publish(WS_EVENTS_CHANNEL, json.dumps(envelope))
+        except (RedisError, OSError):
+            # Сообщение уже может быть зафиксировано в PostgreSQL.
+            # Ошибка Pub/Sub не должна вынуждать клиента повторно отправлять его.
+            logger.exception('Не удалось опубликовать WebSocket-событие в Redis')
 
     async def broadcast(
         self, message: dict, exclude_user_ids: list[int] | None = None

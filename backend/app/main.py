@@ -15,7 +15,7 @@ from app.config import FILES_ROOT, STATIC_DIR, settings
 from app.database import engine
 from app.exceptions import register_exception_handlers
 from app.routes import auth, chats, files, messages, pages, users, ws
-from app.services import close_redis, init_redis, rate_limiter
+from app.services import close_redis, init_redis, manager, rate_limiter
 from app.utils import get_logger, setup_logging
 
 setup_logging()
@@ -26,8 +26,12 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     FILES_ROOT.mkdir(parents=True, exist_ok=True)
     await init_redis()
-    yield
-    await close_redis()
+    await manager.start()
+    try:
+        yield
+    finally:
+        await manager.stop()
+        await close_redis()
     await engine.dispose()
 
 
