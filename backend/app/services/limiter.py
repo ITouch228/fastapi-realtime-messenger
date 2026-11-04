@@ -81,4 +81,7 @@ def get_client_ip(request: Request) -> str:
     return direct
 
 
-rate_limiter = Limiter(key_func=get_client_ip)
+rate_limiter = Limiter(
+    key_func=get_client_ip,
+    storage_uri=settings.REDIS_URL,
+)
