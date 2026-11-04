@@ -167,8 +167,8 @@ class ChatManager:
         return _build_chat_response(chat, last_message, user_b_id, last_seen)
 
     @staticmethod
-    async def delete(chat_id: int, user_id: int, session: AsyncSession) -> None:
-        """Удалить чат (только участник): сообщения, файлы в БД и файлы на диске."""
+    async def delete(chat_id: int, user_id: int, session: AsyncSession) -> list[str]:
+        """Удалить чат и записи файлов, вернув пути для очистки после commit."""
         chat = await ChatDAO.find_one_or_none(session, id=chat_id)
         if not chat:
             raise NotFoundError('Чат не найден')
@@ -178,10 +178,11 @@ class ChatManager:
 
         logger.info('Удаление чата: %s', chat_id)
 
-        # Удалить файлы: строки из БД + физические файлы на диске.
-        # commit происходит на уровне роута — если транзакция откатится,
-        # физически файлы ещё не будут удалены.
-        await FileManager.delete_chat_files(session=session, chat_id=chat_id)
+        # Удаляем только строки в транзакции: физический cleanup после commit.
+        rel_paths = await FileManager.delete_chat_files(
+            session=session, chat_id=chat_id
+        )
 
         await ChatDAO.delete(session=session, chat_id=chat_id)
-        logger.info('Чат успешно удалён: %s', chat_id)
+        logger.info('Чат подготовлен к удалению: %s', chat_id)
+        return rel_paths
