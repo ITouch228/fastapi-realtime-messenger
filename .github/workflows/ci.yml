@@ -63,10 +63,6 @@ jobs:
         working-directory: backend
         run: ruff check .
 
-      - name: Show Ruff formatting diff
-        working-directory: backend
-        run: ruff format --diff tests/test_ws_redis_relay.py || true
-
       - name: Ruff formatting
         working-directory: backend
         run: ruff format --check .
