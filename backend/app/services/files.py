@@ -110,6 +110,20 @@ class FileManager:
         return rel_paths
 
     @staticmethod
+    async def cleanup_failed_upload(rel_path: str) -> None:
+        """Best-effort удаление только что созданного файла после неуспешного POST.
+
+        Не допускаем маскирования первичной ошибки транзакции ошибкой диска.
+        Путь берётся из серверного UUID-имени, а не из имени от клиента.
+        """
+        try:
+            await delete_files_from_disk([rel_path])
+        except Exception:
+            logger.exception(
+                'Не удалось убрать новое вложение после отката: %s', rel_path
+            )
+
+    @staticmethod
     async def cleanup_deleted_chat_files(rel_paths: list[str]) -> None:
         """Best-effort очистка диска после commit; сбой не отменяет удаление чата."""
         if not rel_paths:
