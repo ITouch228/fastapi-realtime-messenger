@@ -87,7 +87,9 @@ class RedisRelayTests(unittest.IsolatedAsyncioTestCase):
         manager._deliver_event = deliver
         with (
             patch('app.services.websocket_manager.get_redis', return_value=redis),
-            patch('app.services.websocket_manager.asyncio.sleep', new_callable=AsyncMock),
+            patch(
+                'app.services.websocket_manager.asyncio.sleep', new_callable=AsyncMock
+            ),
         ):
             task = asyncio.create_task(manager._listen())
             try:
