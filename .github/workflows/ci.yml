@@ -63,10 +63,6 @@ jobs:
         working-directory: backend
         run: ruff check .
 
-      - name: Ruff formatting diff for new outbox files
-        working-directory: backend
-        run: ruff format --diff app/routes/chats.py app/services/files.py || true
-
       - name: Ruff formatting
         working-directory: backend
         run: ruff format --check .
