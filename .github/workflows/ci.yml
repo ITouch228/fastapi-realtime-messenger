@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Python 3.12 / lint, types, tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements-dev.txt
+
+      - name: Ruff lint
+        working-directory: backend
+        run: ruff check .
+
+      - name: Ruff formatting
+        working-directory: backend
+        run: ruff format --check .
+
+      - name: Mypy
+        working-directory: backend
+        run: mypy --package app
+
+      - name: Unit tests
+        working-directory: backend
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+  frontend:
+    name: Node 22 / ESLint, Prettier
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install locked project dependencies
+        run: npm ci
+
+      # ESLint/Prettier were previously invoked through unpinned npx.
+      # Pin CLI versions explicitly until they're declared in package.json/lockfile.
+      - name: ESLint
+        run: npx --yes --package eslint@9.39.2 eslint backend/app/static/js
+
+      - name: Prettier
+        run: npx --yes --package prettier@3.6.2 prettier --check "backend/app/static/**/*.{js,css,html}"
