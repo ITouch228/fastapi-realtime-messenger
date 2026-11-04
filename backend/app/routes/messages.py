@@ -27,6 +27,28 @@ logger = get_logger(__name__)
 router = APIRouter(prefix='/messages')
 
 
+async def _publish_message_events(
+    new_chat_payload: dict | None,
+    peer_id: int | None,
+    sender_id: int,
+    chat_users: list[int],
+    message_response: MessageResponse,
+    client_id: str | None,
+) -> None:
+    """Публиковать изменения только после успешного PostgreSQL commit."""
+    if new_chat_payload is not None and peer_id is not None:
+        await manager.send_to_users(new_chat_payload, [peer_id, sender_id])
+
+    await manager.send_to_users(
+        {
+            'type': 'new_message',
+            'message': message_response.model_dump(mode='json'),
+            'client_id': client_id,
+        },
+        chat_users,
+    )
+
+
 @router.get('/{chat_id}', response_model=list[MessageResponse])
 async def get_chat_messages(
     chat_id: int,
@@ -52,6 +74,8 @@ async def send_message(
     session: AsyncSession = Depends(get_session),
     _: None = Depends(require_csrf),
 ):
+    saved_path: str | None = None
+    committed = False
     try:
         sent_at = datetime.now(UTC)
 
@@ -91,6 +115,7 @@ async def send_message(
             original_name = file_name or file.filename or ''
             file_content = await file.read(settings.MAX_FILE_SIZE + 1)
             saved = await save_file(chat_id_int, original_name, file_content)
+            saved_path = f'{chat_id_int}/{saved.disk_name}'
 
             file_in_db = await FileManager.create(
                 chat_id=chat_id_int,
@@ -122,19 +147,16 @@ async def send_message(
         )
 
         await session.commit()
+        committed = True
 
-        # Объявляем новый чат только после успешной фиксации в PostgreSQL.
-        if new_chat_payload is not None:
-            await manager.send_to_users(new_chat_payload, [peer_id, current_user.id])
-
-        # new_message шлём всем участникам, включая отправителя:
-        # client_id позволяет клиенту надёжно подтвердить оптимистичное сообщение
-        payload = {
-            'type': 'new_message',
-            'message': message_response.model_dump(mode='json'),
-            'client_id': client_id,
-        }
-        await manager.send_to_users(payload, list(chat.users or []))
+        await _publish_message_events(
+            new_chat_payload,
+            peer_id,
+            current_user.id,
+            list(chat.users or []),
+            message_response,
+            client_id,
+        )
 
         return message_response
 
@@ -146,6 +168,13 @@ async def send_message(
     except Exception:
         logger.critical('Неожиданная ошибка при отправке сообщения', exc_info=True)
         raise
+    finally:
+        # Файл создаётся до INSERT и commit; при любом неуспешном исходе
+        # (включая отмену запроса) удаляем исключительно новый UUID-путь.
+        # После commit файл принадлежит записи БД и трогать его нельзя,
+        # даже если публикация WS-события неожиданно завершилась ошибкой.
+        if saved_path is not None and not committed:
+            await FileManager.cleanup_failed_upload(saved_path)
 
 
 @router.delete('/{message_id}', status_code=status.HTTP_204_NO_CONTENT)
