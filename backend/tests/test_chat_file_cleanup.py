@@ -12,8 +12,9 @@ class ChatDeletionTests(unittest.IsolatedAsyncioTestCase):
     async def test_cleanup_runs_after_commit(self):
         session = SimpleNamespace(commit=AsyncMock())
         user = SimpleNamespace(id=7)
+        cleanup_path = 'app.routes.chats.FileManager.cleanup_deleted_chat_files'
         with patch('app.routes.chats.ChatManager.delete') as delete:
-            with patch('app.routes.chats.FileManager.cleanup_deleted_chat_files') as cleanup:
+            with patch(cleanup_path) as cleanup:
                 delete.return_value = ['42/photo.webp']
                 order = Mock()
                 order.attach_mock(delete, 'delete')
