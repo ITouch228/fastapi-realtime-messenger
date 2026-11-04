@@ -203,8 +203,11 @@ async def save_file(chat_id: int, file_name: str, file_content: bytes) -> SavedU
 
             # Pillow может перекодировать JPEG/PNG в WebP; храним
             # расширение и MIME фактического формата после обработки.
-            with Image.open(io.BytesIO(file_content)) as stored_image:
-                stored_format = stored_image.format
+            def get_stored_format() -> str | None:
+                with Image.open(io.BytesIO(file_content)) as stored_image:
+                    return stored_image.format
+
+            stored_format = await run_in_threadpool(get_stored_format)
             if stored_format not in ('JPEG', 'PNG', 'GIF', 'WEBP'):
                 raise BadRequestError(detail='Неподдерживаемый формат изображения')
             stored_extension = {
@@ -233,8 +236,10 @@ async def save_file(chat_id: int, file_name: str, file_content: bytes) -> SavedU
         for _ in range(3):
             disk_name = uuid4().hex + stored_extension
             path = directory / disk_name
+            created = False
             try:
                 async with aiofiles.open(path, 'xb') as handle:
+                    created = True
                     await handle.write(file_content)
                 return SavedUpload(
                     disk_name=disk_name,
@@ -247,7 +252,8 @@ async def save_file(chat_id: int, file_name: str, file_content: bytes) -> SavedU
             except OSError:
                 # Если запись после открытия не удалась, удаляем только
                 # созданный нами частичный файл. Старые файлы не затрагиваем.
-                await run_in_threadpool(path.unlink, missing_ok=True)
+                if created:
+                    await run_in_threadpool(path.unlink, missing_ok=True)
                 raise
         raise AppError(detail='Не удалось подобрать уникальное имя файла')
     except OSError as exc:
