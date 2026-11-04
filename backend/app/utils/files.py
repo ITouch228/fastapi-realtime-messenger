@@ -180,7 +180,7 @@ async def _prepare_image(extension: str, content: bytes) -> tuple[bytes, str]:
 
         def stored_format() -> str | None:
             with Image.open(io.BytesIO(content)) as image:
-                return image.format
+                return str(image.format) if image.format is not None else None
 
         fmt = await run_in_threadpool(stored_format)
         suffixes = {
