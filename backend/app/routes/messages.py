@@ -88,7 +88,7 @@ async def send_message(
         # записанных байтов (после возможного сжатия изображения).
         file_id: int | None = None
         if file:
-            original_name = file_name or file.filename
+            original_name = file_name or file.filename or ''
             file_content = await file.read(settings.MAX_FILE_SIZE + 1)
             saved = await save_file(chat_id_int, original_name, file_content)
 
