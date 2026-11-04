@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -85,27 +84,21 @@ async def send_message(
         if message_text and len(message_text) > settings.MAX_MESSAGE_LENGTH:
             raise BadRequestError(detail='Сообщение слишком длинное')
 
-        # файл
+        # Файл хранится под UUID-именем, а метаданные берутся из реально
+        # записанных байтов (после возможного сжатия изображения).
         file_id: int | None = None
         if file:
-            file_content = await file.read()
-
-            # Уникальное имя на диске — предотвращает коллизию имён,
-            # которая ломает историю сообщений: если пользователь
-            # загрузил тот же файл повторно, новый файл перезаписал бы
-            # старый на диске, а БД вернула бы тот же file_id — и
-            # предыдущие сообщения с этим file_id показали бы новое содержимое
-            disk_name = f'{uuid4().hex}_{file_name}'
-
-            await save_file(chat_id_int, disk_name, file_content)
+            original_name = file_name or file.filename or ''
+            file_content = await file.read(settings.MAX_FILE_SIZE + 1)
+            saved = await save_file(chat_id_int, original_name, file_content)
 
             file_in_db = await FileManager.create(
                 chat_id=chat_id_int,
-                file_name=disk_name,
+                file_name=saved.disk_name,
                 owner_id=current_user.id,
-                original_name=file.filename or file_name,
-                mime_types=file.content_type or 'application/octet-stream',
-                size_bytes=len(file_content),
+                original_name=saved.original_name,
+                mime_types=saved.mime_type,
+                size_bytes=saved.size_bytes,
                 session=session,
             )
             file_id = file_in_db.id

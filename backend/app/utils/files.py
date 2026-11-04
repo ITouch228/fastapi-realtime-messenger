@@ -1,7 +1,8 @@
 import io
 import mimetypes
-import os
+from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 import aiofiles
 from fastapi.responses import Response
@@ -14,6 +15,24 @@ from app.utils.logging import get_logger
 from app.utils.validators import validate_file_name
 
 logger = get_logger(__name__)
+
+IMAGE_EXTENSIONS = {
+    '.jpg': 'JPEG',
+    '.jpeg': 'JPEG',
+    '.png': 'PNG',
+    '.gif': 'GIF',
+    '.webp': 'WEBP',
+}
+
+
+@dataclass(frozen=True)
+class SavedUpload:
+    """Метаданные реально записанных байтов, а не клиента."""
+
+    disk_name: str
+    original_name: str
+    mime_type: str
+    size_bytes: int
 
 
 def resolve_file_path(db_path: str) -> Path | None:
@@ -144,55 +163,90 @@ async def delete_files_from_disk(rel_paths: list[str]) -> None:
     await run_in_threadpool(_unlink)
 
 
-async def save_file(chat_id: int, file_name: str, file_content: bytes) -> None:
-    """Проверить и сохранить файл в uploads/{chat_id}/. Изображения сжимает в WebP."""
+async def _prepare_image(extension: str, content: bytes) -> tuple[bytes, str]:
+    """Проверить формат изображения и вернуть байты с правильным расширением."""
+
+    def inspect() -> str | None:
+        with Image.open(io.BytesIO(content)) as image:
+            image.verify()
+            return str(image.format) if image.format is not None else None
+
+    try:
+        actual_format = await run_in_threadpool(inspect)
+        if actual_format != IMAGE_EXTENSIONS[extension]:
+            raise BadRequestError(detail='Расширение не соответствует изображению')
+        if actual_format != 'GIF':
+            content = await run_in_threadpool(compress_image_sync, content)
+
+        def stored_format() -> str | None:
+            with Image.open(io.BytesIO(content)) as image:
+                return str(image.format) if image.format is not None else None
+
+        fmt = await run_in_threadpool(stored_format)
+        suffixes = {
+            'JPEG': '.jpg',
+            'PNG': '.png',
+            'GIF': '.gif',
+            'WEBP': '.webp',
+        }
+        if fmt not in suffixes:
+            raise BadRequestError(detail='Неподдерживаемый формат изображения')
+        return content, suffixes[fmt]
+    except Image.DecompressionBombError as exc:
+        raise PayloadTooLargeError(detail='Файл слишком большой для обработки') from exc
+    except (Image.UnidentifiedImageError, OSError) as exc:
+        raise BadRequestError(detail='Некорректный файл изображения') from exc
+
+
+async def _write_unique_file(chat_id: int, extension: str, content: bytes) -> str:
+    """Записать байты только в новый UUID-путь; не перезаписывать существующий."""
+    directory = FILES_ROOT.resolve() / str(chat_id)
+    try:
+        await run_in_threadpool(directory.mkdir, parents=True, exist_ok=True)
+        for _ in range(3):
+            disk_name = uuid4().hex + extension
+            path = directory / disk_name
+            created = False
+            try:
+                async with aiofiles.open(path, 'xb') as handle:
+                    created = True
+                    await handle.write(content)
+                return disk_name
+            except FileExistsError:
+                continue
+            except OSError:
+                if created:
+                    await run_in_threadpool(path.unlink, missing_ok=True)
+                raise
+        raise AppError(detail='Не удалось подобрать уникальное имя файла')
+    except OSError as exc:
+        logger.exception('Ошибка записи вложения в чат %s', chat_id)
+        raise AppError(detail='Не удалось сохранить файл') from exc
+
+
+async def save_file(chat_id: int, file_name: str, file_content: bytes) -> SavedUpload:
+    """Проверить вложение и вернуть метаданные фактически записанного файла."""
     if chat_id < 0:
         raise BadRequestError(detail='Некорректный ID чата')
-
-    # Отклоняет разделители путей (в т.ч. обратную косую черту Windows),
-    # управляющие символы, '.'/'..'.
     validate_file_name(file_name)
-
-    if len(file_content) == 0:
+    if not file_content:
         raise BadRequestError(detail='Пустое содержимое файла')
-
-    file_ext = os.path.splitext(file_name)[1].lower()
-    if file_ext not in settings.ALLOWED_FILE_EXTENSIONS:
-        raise BadRequestError(detail='Недопустимый тип файла')
-
     if len(file_content) > settings.MAX_FILE_SIZE:
         raise PayloadTooLargeError(detail='Файл слишком большой')
 
-    rel_path = f'{chat_id}/{file_name}'
+    extension = Path(file_name).suffix.lower()
+    if extension not in settings.ALLOWED_FILE_EXTENSIONS:
+        raise BadRequestError(detail='Недопустимый тип файла')
+    if extension in IMAGE_EXTENSIONS:
+        file_content, extension = await _prepare_image(extension, file_content)
 
-    abs_path = (FILES_ROOT / rel_path).resolve()
-
-    if not abs_path.is_relative_to(FILES_ROOT.resolve()):
-        raise BadRequestError(detail='Некорректный путь файла')
-
-    try:
-        await run_in_threadpool(os.makedirs, abs_path.parent, exist_ok=True)
-
-        if file_ext in ['.png', '.jpg', '.jpeg', '.webp', '.gif']:
-            try:
-                img = await run_in_threadpool(Image.open, io.BytesIO(file_content))
-                await run_in_threadpool(img.verify)
-
-                if file_ext != '.gif':
-                    file_content = await run_in_threadpool(
-                        compress_image_sync, file_content
-                    )
-            except Image.DecompressionBombError:
-                raise PayloadTooLargeError(detail='Файл слишком большой для обработки')
-            except Image.UnidentifiedImageError:
-                raise BadRequestError(detail='Некорректный файл изображения')
-            except OSError:
-                raise BadRequestError(detail='Некорректный файл изображения')
-
-        async with aiofiles.open(abs_path, 'wb') as f:
-            await f.write(file_content)
-    except AppError:
-        raise
-    except OSError as exc:
-        logger.exception('Ошибка сохранения файла: %s', file_name)
-        raise AppError(detail='Не удалось сохранить файл') from exc
+    mime_type = mimetypes.guess_type('file' + extension)[0]
+    if mime_type is None:
+        mime_type = 'application/octet-stream'
+    disk_name = await _write_unique_file(chat_id, extension, file_content)
+    return SavedUpload(
+        disk_name=disk_name,
+        original_name=file_name,
+        mime_type=mime_type,
+        size_bytes=len(file_content),
+    )
