@@ -132,9 +132,7 @@ async def send_message(
 
         # Объявляем новый чат только после успешной фиксации в PostgreSQL.
         if new_chat_payload is not None:
-            await manager.send_to_users(
-                new_chat_payload, [peer_id, current_user.id]
-            )
+            await manager.send_to_users(new_chat_payload, [peer_id, current_user.id])
 
         # new_message шлём всем участникам, включая отправителя:
         # client_id позволяет клиенту надёжно подтвердить оптимистичное сообщение
