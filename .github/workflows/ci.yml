@@ -138,3 +138,78 @@ jobs:
 
       - name: Prettier
         run: npx --yes --package prettier@3.6.2 prettier --check "backend/app/static/**/*.{js,css,html}"
+
+  docker_compose:
+    name: Docker / 4 Uvicorn workers / HTTP
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare isolated test secrets
+        run: |
+          cp .env.example .env
+          sed -i 's/^DB_PASSWORD=.*/DB_PASSWORD=ci-only-strong-password/' .env
+          sed -i 's/^COOKIE_SECURE=.*/COOKIE_SECURE=false/' .env
+          mkdir -p backend/keys
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out backend/keys/private.pem
+          openssl pkey -in backend/keys/private.pem -pubout -out backend/keys/public.pem
+          # Ephemeral CI key: readable inside container by UID 10001.
+          chmod 755 backend/keys
+          chmod 644 backend/keys/private.pem backend/keys/public.pem
+
+      - name: Validate production Compose configuration
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+
+      - name: Build and boot application with real Compose
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180
+
+      - name: Verify 4 Uvicorn child workers and RSA key mounts
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend python - <<'PY'
+          import os
+          from pathlib import Path
+
+          assert os.environ.get('UVICORN_WORKERS') == '4'
+          for name in ('private.pem', 'public.pem'):
+              path = Path('/app/keys') / name
+              assert path.is_file() and os.access(path, os.R_OK), name
+
+          # Entrypoint execs Uvicorn master as PID 1. Uvicorn multiprocess
+          # workers are immediate children of PID 1.
+          children = []
+          for proc in Path('/proc').iterdir():
+              if not proc.name.isdigit():
+                  continue
+              try:
+                  info = (proc / 'status').read_text()
+                  if any(line.strip() == 'PPid:\t1' for line in info.splitlines()):
+                      children.append(int(proc.name))
+              except (FileNotFoundError, PermissionError, ProcessLookupError):
+                  continue
+          assert len(children) >= 4, f'Expected 4 Uvicorn workers: {children}'
+          print('4 Uvicorn workers and runtime RSA keys OK:', children)
+          PY
+
+      - name: Ensure Docker image contains no embedded secrets
+        run: |
+          image_id=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml images -q backend)
+          test -n "$image_id"
+          docker run --rm --entrypoint sh "$image_id" -c 'test ! -e /app/keys/private.pem && test ! -e /app/keys/public.pem && test ! -e /app/.env'
+
+      - name: HTTP smoke test through Docker port 8000
+        run: python3 backend/tests/smoke_http.py
+
+      - name: Check restart with persistent database
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml restart backend
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait --wait-timeout 120
+          python3 backend/tests/smoke_http.py
+
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --no-color --tail=250
+
+      - name: Clean up
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml down --volumes --remove-orphans
