@@ -144,6 +144,25 @@ class RedisMultiworkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await second.disconnect(tab_b, user_id))
             self.assertFalse(await first.is_online(user_id))
 
+    async def test_presence_versions_increase_only_on_global_transitions(self):
+        """Версии назначаются атомарно Redis даже между разными воркерами."""
+        user_id = 1199
+        first = WebSocketManager()
+        second = WebSocketManager()
+        tab_a = AsyncMock()
+        tab_b = AsyncMock()
+
+        with patch.object(presence_registry, 'get_redis', return_value=self.redis):
+            online_v1 = await first.connect(tab_a, user_id)
+            self.assertGreater(online_v1, 0)
+            self.assertEqual(await second.connect(tab_b, user_id), 0)
+            self.assertEqual(await first.disconnect(tab_a, user_id), 0)
+            offline_v2 = await second.disconnect(tab_b, user_id)
+            self.assertEqual(offline_v2, online_v1 + 1)
+            online_v3 = await first.connect(tab_a, user_id)
+            self.assertEqual(online_v3, offline_v2 + 1)
+            self.assertEqual(await first.disconnect(tab_a, user_id), online_v3 + 1)
+
     async def test_expired_lease_disappears_from_global_online_index(self):
         user_id = 1098
         await self.redis.zadd(presence_registry.USERS_KEY, {str(user_id): 1})
