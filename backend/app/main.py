@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import cast
@@ -16,6 +17,7 @@ from app.database import engine
 from app.exceptions import register_exception_handlers
 from app.routes import auth, chats, files, messages, pages, users, ws
 from app.services import close_redis, init_redis, manager, rate_limiter
+from app.services.file_cleanup import file_cleanup_loop, stop_cleanup_task
 from app.utils import get_logger, setup_logging
 
 setup_logging()
@@ -27,12 +29,14 @@ async def lifespan(app: FastAPI):
     FILES_ROOT.mkdir(parents=True, exist_ok=True)
     await init_redis()
     await manager.start()
+    cleanup_task = asyncio.create_task(file_cleanup_loop(), name='file-cleanup')
     try:
         yield
     finally:
+        await stop_cleanup_task(cleanup_task)
         await manager.stop()
         await close_redis()
-    await engine.dispose()
+        await engine.dispose()
 
 
 app = FastAPI(lifespan=lifespan)
