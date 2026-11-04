@@ -6,7 +6,9 @@ from app.deps import get_current_user
 from app.schemas import ChatResponse, UserResponse
 from app.services import ChatManager
 from app.services.file_cleanup import process_file_cleanup_batch
-from app.utils import require_csrf
+from app.utils import get_logger, require_csrf
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix='/chats')
 
@@ -49,4 +51,4 @@ async def delete_chat(
     try:
         await process_file_cleanup_batch()
     except Exception:
-        pass
+        logger.exception('Outbox сохранён, очистка будет повторена воркером')
