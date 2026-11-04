@@ -11,9 +11,7 @@ class RedisRelayTests(unittest.IsolatedAsyncioTestCase):
     async def test_publish_one_event_to_unique_recipients(self):
         manager = WebSocketManager()
         redis = AsyncMock()
-        with patch(
-            'app.services.websocket_manager.get_redis', return_value=redis
-        ):
+        with patch('app.services.websocket_manager.get_redis', return_value=redis):
             await manager.send_to_users({'type': 'new_message'}, [3, 2, 3])
         args = redis.publish.await_args.args
         self.assertEqual(args[0], WS_EVENTS_CHANNEL)
