@@ -84,8 +84,15 @@ jobs:
           DB_PORT: '5432'
           DB_NAME: messenger_test
         run: |
+          # Только пустая одноразовая БД CI: проверяем единственную базовую
+          # ревизию, соответствие моделям и повторное создание после downgrade.
+          alembic heads
           alembic upgrade head
           alembic current
+          alembic check
+          alembic downgrade base
+          alembic upgrade head
+          alembic check
 
       - name: Redis multiworker integration tests
         working-directory: backend
