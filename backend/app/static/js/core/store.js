@@ -7,7 +7,7 @@
  *   chats.order  — Array<chatId> — порядок чатов в списке
  *   messages.byId — Map<chatId, Map<msgId, Message>>
  *   messages.loading — Map<chatId, boolean>
- *   peerStatuses — Map<userId, { online, last_seen }>
+ *   peerStatuses — Map<userId, { online, last_seen, version }>
  *   ui.activeChatId — текущий активный чат
  *   userId — ID текущего пользователя
  */
@@ -297,6 +297,17 @@ const store = {
    * Установить статус конкретного пользователя.
    */
   setPeerStatus(userId, status) {
+    const previous = this.peerStatuses[userId];
+    // Версия присваивается в Redis атомарно при переходе online/offline,
+    // поэтому событие со старой версией не может перезаписать новое.
+    if (
+      previous &&
+      Number.isSafeInteger(previous.version) &&
+      (!Number.isSafeInteger(status.version) ||
+        status.version <= previous.version)
+    ) {
+      return;
+    }
     this.peerStatuses[userId] = status;
     store.notify('peerStatuses');
   },
