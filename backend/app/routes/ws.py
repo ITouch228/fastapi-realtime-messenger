@@ -1,6 +1,7 @@
 import asyncio
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from redis.exceptions import RedisError
 
 from app.config import settings
 from app.database import async_session_maker
@@ -82,6 +83,14 @@ async def websocket_endpoint(
                 logger.warning('WS-аренда истекла: user_id=%s', user_id)
                 await websocket.close(code=1012)
                 break
+    except RedisError:
+        # Состояние сокета нельзя подтвердить без Redis. Завершаем WS,
+        # браузер переподключится и перечитает сообщения через HTTP.
+        logger.warning('Redis недоступен в WS-цикле: user_id=%s', user_id)
+        try:
+            await websocket.close(code=1012)
+        except (WebSocketDisconnect, OSError, RuntimeError):
+            pass
     except (WebSocketDisconnect, OSError, RuntimeError) as exc:
         # Штатный обрыв: клиент закрыл вкладку, сеть пропала, сокет уже
         # закрыт (starlette поднимает RuntimeError при send в закрытый сокет)
@@ -96,7 +105,12 @@ async def websocket_endpoint(
     finally:
         # Отписка обязательна в любом случае, иначе соединение останется в
         # active_connections и пользователь «зависнет» в статусе онлайн
-        went_offline = await manager.disconnect(websocket, user_id)
-        if went_offline:
-            async with async_session_maker() as session:
-                await notify_offline(user_id, session)
+        try:
+            went_offline = await manager.disconnect(websocket, user_id)
+        except (RedisError, OSError):
+            # Локальный сокет уже отвязан, Redis-аренда истечёт по TTL.
+            logger.warning('Не удалось снять Redis-аренду: user_id=%s', user_id)
+        else:
+            if went_offline:
+                async with async_session_maker() as session:
+                    await notify_offline(user_id, session)
