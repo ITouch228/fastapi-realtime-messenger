@@ -4,6 +4,8 @@ import json
 import unittest
 from unittest.mock import AsyncMock, patch
 
+from redis.exceptions import RedisError
+
 from app.services.websocket_manager import WS_EVENTS_CHANNEL, WebSocketManager
 
 
@@ -28,6 +30,13 @@ class RedisRelayTests(unittest.IsolatedAsyncioTestCase):
             {'user_ids': [2, 3], 'payload': {'type': 'new_message'}}
         )
         socket.send_json.assert_awaited_once_with({'type': 'new_message'})
+
+    async def test_redis_failure_does_not_fail_committed_http_operation(self):
+        manager = WebSocketManager()
+        redis = AsyncMock()
+        redis.publish.side_effect = RedisError('unavailable')
+        with patch('app.services.websocket_manager.get_redis', return_value=redis):
+            await manager.send_to_users({'type': 'new_message'}, [5])
 
     async def test_empty_recipients_do_not_publish(self):
         manager = WebSocketManager()
