@@ -1,0 +1,11 @@
+# Хуки запускаются локально перед git commit после `pre-commit install`.
+# CI независимо проверяет формат, включая коммиты из GitHub UI/API.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.3
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/.*\.py$
+      - id: ruff-format
+        files: ^backend/.*\.py$
