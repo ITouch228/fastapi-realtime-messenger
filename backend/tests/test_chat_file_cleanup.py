@@ -13,7 +13,9 @@ class ChatDeletionTests(unittest.IsolatedAsyncioTestCase):
         session = SimpleNamespace(commit=AsyncMock())
         user = SimpleNamespace(id=7)
         with (
-            patch('app.routes.chats.ChatManager.delete', new_callable=AsyncMock) as delete,
+            patch(
+                'app.routes.chats.ChatManager.delete', new_callable=AsyncMock
+            ) as delete,
             patch(
                 'app.routes.chats.FileManager.cleanup_deleted_chat_files',
                 new_callable=AsyncMock,
@@ -37,9 +39,13 @@ class ChatDeletionTests(unittest.IsolatedAsyncioTestCase):
             )
 
     async def test_failed_commit_never_unlinks_files(self):
-        session = SimpleNamespace(commit=AsyncMock(side_effect=RuntimeError('DB down')))
+        session = SimpleNamespace(
+            commit=AsyncMock(side_effect=RuntimeError('DB down'))
+        )
         with (
-            patch('app.routes.chats.ChatManager.delete', new_callable=AsyncMock) as delete,
+            patch(
+                'app.routes.chats.ChatManager.delete', new_callable=AsyncMock
+            ) as delete,
             patch(
                 'app.routes.chats.FileManager.cleanup_deleted_chat_files',
                 new_callable=AsyncMock,
@@ -57,9 +63,15 @@ class ChatDeletionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_db_only_phase_returns_paths_without_disk_io(self):
         with (
-            patch('app.services.files.FileDAO.find_by_chat', new_callable=AsyncMock) as find,
-            patch('app.services.files.FileDAO.delete_by_chat', new_callable=AsyncMock) as delete,
-            patch('app.services.files.delete_files_from_disk', new_callable=AsyncMock) as unlink,
+            patch(
+                'app.services.files.FileDAO.find_by_chat', new_callable=AsyncMock
+            ) as find,
+            patch(
+                'app.services.files.FileDAO.delete_by_chat', new_callable=AsyncMock
+            ) as delete,
+            patch(
+                'app.services.files.delete_files_from_disk', new_callable=AsyncMock
+            ) as unlink,
         ):
             find.return_value = [SimpleNamespace(file_path='42/photo.webp')]
             session = Mock()
