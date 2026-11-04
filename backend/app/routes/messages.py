@@ -52,6 +52,8 @@ async def send_message(
     session: AsyncSession = Depends(get_session),
     _: None = Depends(require_csrf),
 ):
+    saved_path: str | None = None
+    committed = False
     try:
         sent_at = datetime.now(UTC)
 
@@ -91,6 +93,7 @@ async def send_message(
             original_name = file_name or file.filename or ''
             file_content = await file.read(settings.MAX_FILE_SIZE + 1)
             saved = await save_file(chat_id_int, original_name, file_content)
+            saved_path = f'{chat_id_int}/{saved.disk_name}'
 
             file_in_db = await FileManager.create(
                 chat_id=chat_id_int,
@@ -122,6 +125,7 @@ async def send_message(
         )
 
         await session.commit()
+        committed = True
 
         # Объявляем новый чат только после успешной фиксации в PostgreSQL.
         if new_chat_payload is not None:
@@ -146,6 +150,13 @@ async def send_message(
     except Exception:
         logger.critical('Неожиданная ошибка при отправке сообщения', exc_info=True)
         raise
+    finally:
+        # Файл создаётся до INSERT и commit; при любом неуспешном исходе
+        # (включая отмену запроса) удаляем исключительно новый UUID-путь.
+        # После commit файл принадлежит записи БД и трогать его нельзя,
+        # даже если публикация WS-события неожиданно завершилась ошибкой.
+        if saved_path is not None and not committed:
+            await FileManager.cleanup_failed_upload(saved_path)
 
 
 @router.delete('/{message_id}', status_code=status.HTTP_204_NO_CONTENT)
