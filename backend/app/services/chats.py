@@ -32,6 +32,7 @@ def _build_chat_response(
     last_message: tuple[str | None, datetime | None, bool] | None,
     peer_id: int | None,
     last_seen: datetime | None,
+    peer_online: bool,
 ) -> ChatResponse:
     """Собирает ChatResponse из ORM-чата, кортежа последнего сообщения и данных peer.
 
@@ -50,7 +51,7 @@ def _build_chat_response(
         response.last_message_sent_at = sent_at
 
     if peer_id is not None:
-        response.peer_online = manager.is_online(peer_id)
+        response.peer_online = peer_online
         response.peer_last_seen = last_seen
 
     return response
@@ -128,13 +129,18 @@ class ChatManager:
 
         peer_ids = [pid for pid in (_peer_id(c.users, user_id) for c in chats) if pid]
         last_seen_map = await UserManager.get_last_seen_map(session, peer_ids)
+        online_ids = await manager.online_user_ids()
 
         result: list[ChatResponse] = []
         for chat in chats:
             last_message = last_messages.get(chat.id)
             peer = _peer_id(chat.users, user_id)
             last_seen = last_seen_map.get(peer) if peer else None
-            result.append(_build_chat_response(chat, last_message, peer, last_seen))
+            result.append(
+                _build_chat_response(
+                    chat, last_message, peer, last_seen, peer in online_ids
+                )
+            )
 
         return result
 
@@ -164,7 +170,13 @@ class ChatManager:
             user_b_id
         )
 
-        return _build_chat_response(chat, last_message, user_b_id, last_seen)
+        return _build_chat_response(
+            chat,
+            last_message,
+            user_b_id,
+            last_seen,
+            await manager.is_online(user_b_id),
+        )
 
     @staticmethod
     async def delete(chat_id: int, user_id: int, session: AsyncSession) -> list[str]:

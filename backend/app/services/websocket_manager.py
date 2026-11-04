@@ -6,6 +6,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from redis.asyncio.client import PubSub
 from redis.exceptions import RedisError
 
+from app.services import presence_registry
 from app.services.redis_client import get_redis
 from app.utils import get_logger
 
@@ -30,6 +31,7 @@ class WebSocketManager:
 
     def __init__(self) -> None:
         self.active_connections: dict[int, list[WebSocket]] = {}
+        self._connection_ids: dict[int, str] = {}
         self._lock = asyncio.Lock()
         self._subscriber: asyncio.Task[None] | None = None
         self._pubsub: PubSub | None = None
@@ -101,45 +103,48 @@ class WebSocketManager:
         )
 
     async def connect(self, websocket: WebSocket, user_id: int) -> bool:
-        """Принять соединение. True, если у пользователя не было других вкладок."""
+        """Создать аренду Redis и сохранить сокет в локальной памяти воркера."""
         await websocket.accept()
+        token = presence_registry.new_connection_id()
+        came_online = await presence_registry.join(user_id, token)
         async with self._lock:
-            was_offline = user_id not in self.active_connections
             self.active_connections.setdefault(user_id, []).append(websocket)
-            return was_offline
+            self._connection_ids[id(websocket)] = token
+        return came_online
 
-    def _detach(self, websocket: WebSocket, user_id: int) -> bool:
-        """Убрать сокет из реестра. True, если это была последняя вкладка.
-
-        Вызывать только под self._lock.
-        """
+    def _detach(self, websocket: WebSocket, user_id: int) -> str | None:
+        """Отвязать локальный сокет и вернуть Redis-токен (под локом)."""
+        token = self._connection_ids.pop(id(websocket), None)
         conns = self.active_connections.get(user_id)
         if conns and websocket in conns:
             conns.remove(websocket)
             if not conns:
                 self.active_connections.pop(user_id, None)
-                return True
-        return False
+        return token
 
     async def disconnect(self, websocket: WebSocket, user_id: int) -> bool:
-        """Отвязать сокет. True, если пользователь ушёл в офлайн (вкладок больше нет)."""
+        """Снять аренду. Событие offline только при последней вкладке глобально."""
         async with self._lock:
-            return self._detach(websocket, user_id)
+            token = self._detach(websocket, user_id)
+        if token is None:
+            return False
+        return await presence_registry.leave(user_id, token)
 
-    def is_online(self, user_id: int) -> bool:
-        """Есть ли у пользователя активное WS-соединение.
+    async def touch(self, websocket: WebSocket, user_id: int) -> bool:
+        """Продлить TTL вкладки во время входящих сообщений и ping."""
+        async with self._lock:
+            token = self._connection_ids.get(id(websocket))
+        if token is None:
+            return False
+        return await presence_registry.refresh(user_id, token)
 
-        Чтение без await — в asyncio другая задача не может вклиниться
-        в середину, поэтому снимок согласован и блокировка не нужна.
-        """
-        return bool(self.active_connections.get(user_id))
+    async def is_online(self, user_id: int) -> bool:
+        """Глобальный онлайн-статус с Redis TTL."""
+        return await presence_registry.is_online(user_id)
 
     async def online_user_ids(self) -> set[int]:
-        """Снимок id всех подключённых пользователей (для батч-проверок)."""
-        async with self._lock:
-            return {
-                user_id for user_id, conns in self.active_connections.items() if conns
-            }
+        """Снимок статусов всех процессов, а не только текущего воркера."""
+        return await presence_registry.online_user_ids()
 
     async def send_personal_message(self, message: dict, user_id: int) -> None:
         """Отправить payload всем вкладкам пользователя; мёртвые сокеты отвязать."""
@@ -156,10 +161,8 @@ class WebSocketManager:
                 dead.append(conn)
             # Прочие ошибки (например, TypeError при невалидном payload)
             # пробрасываются: это баг в коде вызывающего, а не обрыв связи
-        if dead:
-            async with self._lock:
-                for conn in dead:
-                    self._detach(conn, user_id)
+        for conn in dead:
+            await self.disconnect(conn, user_id)
 
     async def send_to_users(self, message: dict, user_ids: list[int]) -> None:
         """Передать событие всем воркерам через Redis Pub/Sub.
