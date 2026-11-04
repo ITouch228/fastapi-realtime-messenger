@@ -18,17 +18,25 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.prod.yml build backend
 ```
 
-4. Для безопасной проверки **содержимого нового образа**, не публикуя его,
-   используйте временный контейнер. В образе не должно быть `/app/keys/private.pem`
-   или локального `.env`. Успешная проверка путей не отменяет необходимости
-   контролировать слои и историю ранее собранных образов.
+4. Проверьте именно **образ без runtime-монтирования**, а не запущенный Compose-контейнер:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm --no-deps --entrypoint sh backend -c 'test ! -e /app/keys/private.pem || echo "Ключ присутствует через runtime mount; это ожидаемо"'
+IMAGE_ID=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml images -q backend)
+docker run --rm --entrypoint sh "$IMAGE_ID" -c 'test ! -e /app/keys/private.pem && test ! -e /app/keys/public.pem && test ! -e /app/.env'
 ```
 
-> Обратите внимание: при выполнении через Compose файл ключа может
-> присутствовать из-за подключённого read-only тома. Это **не доказывает**,
-> что ключ находится в образе. Для проверки самого образа запускайте
-> `docker run --rm --entrypoint sh <image> -c 'test ! -e /app/keys/private.pem'`
-> без volume mounts.
+5. Для проверки прав внутри уже запущенного контейнера:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T backend python -c "from pathlib import Path; assert Path('/app/keys/private.pem').is_file(); assert Path('/app/keys/public.pem').is_file()"
+```
+
+Это проверяет наличие, но для полной проверки чтения можно вызвать `read_text()`
+под UID приложения. Реальные production-ключи не выводите в логи.
+
+GitHub Actions автоматически проверяет отсутствие ключей в образе, runtime-права
+в контейнере и работу четырёх Uvicorn-воркеров в `docker_compose` job
+[единого CI](ci.md). Локальные права на Windows могут отличаться от Linux CI.
+
+> **Важно:** файл ключа будет виден внутри Compose-контейнера из-за read-only
+> volume. Это нормально и **не** означает, что он встроен в образ.
