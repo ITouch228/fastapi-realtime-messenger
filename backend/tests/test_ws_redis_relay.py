@@ -1,9 +1,9 @@
 """Проверки межпроцессной маршрутизации WebSocket через Redis."""
 
 import asyncio
-from contextlib import suppress
 import json
 import unittest
+from contextlib import suppress
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from redis.exceptions import RedisError
