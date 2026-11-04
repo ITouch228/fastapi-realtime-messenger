@@ -1,12 +1,15 @@
 """Откат файловых побочных эффектов неудачной отправки сообщения."""
 
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.exceptions import AppError
 from app.routes.messages import send_message
+from app.services.files import FileManager
 
 
 class MessageUploadRollbackTests(unittest.IsolatedAsyncioTestCase):
@@ -134,6 +137,30 @@ class MessageUploadRollbackTests(unittest.IsolatedAsyncioTestCase):
             await self.send()
         self.cleanup.assert_awaited_once_with('42/' + self.saved.disk_name)
         self.session.commit.assert_not_awaited()
+
+
+class FailedUploadCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cleanup_removes_only_new_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory = root / '42'
+            directory.mkdir()
+            new_file = directory / ('a' * 32 + '.txt')
+            old_file = directory / ('b' * 32 + '.txt')
+            new_file.write_bytes(b'new')
+            old_file.write_bytes(b'old')
+            with patch('app.utils.files.FILES_ROOT', root):
+                await FileManager.cleanup_failed_upload('42/' + new_file.name)
+            self.assertFalse(new_file.exists())
+            self.assertEqual(old_file.read_bytes(), b'old')
+
+    async def test_cleanup_failure_does_not_mask_original_exception(self):
+        with patch(
+            'app.services.files.delete_files_from_disk',
+            new_callable=AsyncMock,
+            side_effect=OSError('disk unavailable'),
+        ):
+            await FileManager.cleanup_failed_upload('42/new.txt')
 
 
 if __name__ == '__main__':
