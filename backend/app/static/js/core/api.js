@@ -1,3 +1,5 @@
+import { getCsrfToken } from '/static/js/core/csrf.js';
+
 // основной клиент для всего приложения
 const api = axios.create({
   baseURL: '/api',
@@ -22,11 +24,6 @@ authApi.interceptors.request.use((config) => {
 let isRefreshing = false;
 let refreshPromise = null;
 let queue = [];
-
-export function getCsrfToken() {
-  const match = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]*)/);
-  return match ? match[1] : '';
-}
 
 function flushQueue(err) {
   const pending = queue;

@@ -1,4 +1,4 @@
-import { getCsrfToken } from '../core/api.js';
+import { getCsrfToken } from '../core/csrf.js';
 
 const form = document.getElementById('registerForm');
 const message = document.getElementById('message');
