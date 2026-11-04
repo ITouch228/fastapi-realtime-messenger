@@ -180,7 +180,15 @@ class WebSocketManager:
             # Прочие ошибки (например, TypeError при невалидном payload)
             # пробрасываются: это баг в коде вызывающего, а не обрыв связи
         for conn in dead:
-            await self.disconnect(conn, user_id)
+            try:
+                await self.disconnect(conn, user_id)
+            except (RedisError, OSError):
+                # Сокет уже удалён из локального реестра; оставшаяся
+                # Redis-аренда истечёт по TTL после восстановления сервиса.
+                logger.warning(
+                    'Не удалось снять аренду отключённой вкладки user_id=%s',
+                    user_id,
+                )
 
     async def send_to_users(self, message: dict, user_ids: list[int]) -> None:
         """Передать событие всем воркерам через Redis Pub/Sub.
