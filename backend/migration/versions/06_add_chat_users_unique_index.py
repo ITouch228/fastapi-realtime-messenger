@@ -8,6 +8,7 @@ Create Date: 2026-10-25 12:00:00.000000
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '06_add_chat_users_unique_index'
@@ -17,28 +18,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # chats.users хранится отсортированным (ChatManager.create пишет sorted(...)),
-    # поэтому канонический ключ пары — строка array_to_string(users, ',').
-    # PostgreSQL не имеет оператора '=' для ARRAY в operator class, поэтому
-    # уникальный индекс строится по текстовому выражению.
+    """Уникальность пары пользователей без потери существующих чатов.
 
-    # 1. Дедупликация: оставляем самый старый чат пары, удаляем более новые.
-    op.execute(
-        """
-        DELETE FROM chats a
-        USING chats b
-        WHERE a.id > b.id
-          AND array_to_string(a.users, ',') = array_to_string(b.users, ',')
-        """
-    )
-
-    # 2. Expression unique index — гарантирует одну запись на пару пользователей.
-    op.execute(
-        """
-        CREATE UNIQUE INDEX ix_chats_users_unique
-        ON chats (array_to_string(users, ','))
-        """
-    )
+    PostgreSQL поддерживает сравнение массивов integer[] через B-tree.
+    Перед созданием индекса останавливаем миграцию, если уже есть дубликаты:
+    автоматическое DELETE приводило к потере сообщений по ON DELETE CASCADE.
+    """
+    duplicates = op.get_bind().execute(
+        sa.text('SELECT 1 FROM chats GROUP BY users HAVING count(*) > 1 LIMIT 1')
+    ).scalar()
+    if duplicates:
+        raise RuntimeError(
+            'Найдены дубли чатов: сначала объедините их сообщения вручную.'
+        )
+    op.create_index('ix_chats_users_unique', 'chats', ['users'], unique=True)
 
 
 def downgrade() -> None:

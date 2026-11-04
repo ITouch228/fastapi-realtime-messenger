@@ -13,8 +13,14 @@ def upgrade() -> None:
     op.add_column('messages', sa.Column('is_deleted', sa.Boolean(),
         nullable=False, server_default=sa.text('false')))
 
-    # files: старые записи не имеют владельца — удаляем их (данные не нужны).
-    op.execute('TRUNCATE TABLE files RESTART IDENTITY CASCADE')
+    # Старые файлы нельзя удалять без подтверждения: CASCADE также затрагивает
+    # связанные сообщения. Для миграции существующей БД сначала выполните
+    # ручное восстановление соответствия файлов их владельцам.
+    if op.get_bind().execute(sa.text('SELECT EXISTS (SELECT 1 FROM files)')).scalar():
+        raise RuntimeError(
+            'В старой таблице files есть записи без owner_id: '
+            'требуется безопасная ручная миграция данных.'
+        )
 
     op.add_column('files', sa.Column('owner_id', sa.Integer(), nullable=False))
     op.add_column('files', sa.Column('original_name', sa.String(255),

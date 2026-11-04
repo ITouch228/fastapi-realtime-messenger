@@ -19,6 +19,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: messenger_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: messenger_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U messenger_test -d messenger_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
       redis:
         image: redis:7-alpine
         ports:
@@ -61,12 +75,43 @@ jobs:
         working-directory: backend
         run: python -m unittest discover -s tests -p 'test_*.py' -v
 
+      - name: PostgreSQL migration smoke test (fresh database)
+        working-directory: backend
+        env:
+          DB_USER: messenger_test
+          DB_PASSWORD: test_password
+          DB_HOST: localhost
+          DB_PORT: '5432'
+          DB_NAME: messenger_test
+        run: |
+          alembic upgrade head
+          alembic current
+
       - name: Redis multiworker integration tests
         working-directory: backend
         env:
           REDIS_INTEGRATION_TESTS: '1'
           REDIS_INTEGRATION_URL: redis://localhost:6379/15
         run: python -m unittest discover -s tests -p 'test_integration_*.py' -v
+
+      - name: FastAPI HTTP smoke (PostgreSQL, Redis, RSA)
+        working-directory: backend
+        env:
+          DB_USER: messenger_test
+          DB_PASSWORD: test_password
+          DB_HOST: localhost
+          DB_PORT: '5432'
+          DB_NAME: messenger_test
+          REDIS_URL: redis://localhost:6379/14
+          COOKIE_SECURE: 'false'
+        run: |
+          mkdir -p keys
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out keys/private.pem
+          openssl pkey -in keys/private.pem -pubout -out keys/public.pem
+          uvicorn app.main:app --host 127.0.0.1 --port 8000 >/tmp/itmessage-smoke.log 2>&1 &
+          server_pid=$!
+          trap 'cat /tmp/itmessage-smoke.log; kill "$server_pid" 2>/dev/null || true' EXIT
+          python tests/smoke_http.py
 
   frontend:
     name: Node 22 / ESLint, Prettier
