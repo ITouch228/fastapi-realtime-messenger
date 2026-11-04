@@ -131,6 +131,9 @@ jobs:
       - name: Install locked project dependencies
         run: npm ci
 
+      - name: Frontend presence ordering tests
+        run: node --test tests/presence-version.test.mjs
+
       # ESLint/Prettier were previously invoked through unpinned npx.
       # Pin CLI versions explicitly until they're declared in package.json/lockfile.
       - name: ESLint
