@@ -4,7 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.deps import get_current_user
 from app.schemas import ChatResponse, UserResponse
-from app.services import ChatManager, FileManager
+from app.services import ChatManager
+from app.services.file_cleanup import process_file_cleanup_batch
 from app.utils import require_csrf
 
 router = APIRouter(prefix='/chats')
@@ -38,10 +39,14 @@ async def delete_chat(
     session: AsyncSession = Depends(get_session),
     _: None = Depends(require_csrf),
 ):
-    rel_paths = await ChatManager.delete(
+    await ChatManager.delete(
         chat_id=chat_id, user_id=current_user.id, session=session
     )
     await session.commit()
-    # Не удаляем файлы при rollback БД. Неуспешная очистка после commit
-    # не должна превращать успешное удаление чата в HTTP 500.
-    await FileManager.cleanup_deleted_chat_files(rel_paths)
+    # После commit очередь уже долговременна. Попытаемся очистить сразу,
+    # но любая ошибка обработки не меняет успешный HTTP-ответ.
+    # Фоновый воркер повторит задачи после восстановления инфраструктуры.
+    try:
+        await process_file_cleanup_batch()
+    except Exception:
+        pass
