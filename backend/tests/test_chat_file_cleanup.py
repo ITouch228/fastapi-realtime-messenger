@@ -4,9 +4,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call, patch
 
+from app.models.file_cleanup_task import FileCleanupTask
 from app.routes.chats import delete_chat
 from app.services.files import FileManager
-from app.models.file_cleanup_task import FileCleanupTask
 
 
 class ChatDeletionTests(unittest.IsolatedAsyncioTestCase):
