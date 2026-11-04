@@ -35,8 +35,6 @@ class SavedUpload:
     size_bytes: int
 
 
-
-
 def resolve_file_path(db_path: str) -> Path | None:
     """Возвращает путь к файлу на диске по относительному пути"""
 
@@ -165,9 +163,7 @@ async def delete_files_from_disk(rel_paths: list[str]) -> None:
     await run_in_threadpool(_unlink)
 
 
-async def _prepare_image(
-    extension: str, content: bytes
-) -> tuple[bytes, str]:
+async def _prepare_image(extension: str, content: bytes) -> tuple[bytes, str]:
     """Проверить формат изображения и вернуть байты с правильным расширением."""
 
     def inspect() -> str | None:
@@ -197,9 +193,7 @@ async def _prepare_image(
             raise BadRequestError(detail='Неподдерживаемый формат изображения')
         return content, suffixes[fmt]
     except Image.DecompressionBombError as exc:
-        raise PayloadTooLargeError(
-            detail='Файл слишком большой для обработки'
-        ) from exc
+        raise PayloadTooLargeError(detail='Файл слишком большой для обработки') from exc
     except (Image.UnidentifiedImageError, OSError) as exc:
         raise BadRequestError(detail='Некорректный файл изображения') from exc
 
