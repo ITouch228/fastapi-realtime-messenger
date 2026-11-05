@@ -5,6 +5,7 @@
 """
 
 import http.cookiejar
+from copy import copy
 import json
 import os
 import time
@@ -170,6 +171,81 @@ class HttpContractTests(unittest.TestCase):
         status, denied = outsider.call('DELETE', f'/api/chats/{chat_id}', csrf=True)
         self.assertEqual(status, 403)
         self.assertIn('detail', denied)
+
+    def test_z_refresh_rotation_revocation_and_logout_contract(self):
+        """После ротации старые JWT отозваны, а logout отзывает новые."""
+        client = self.clients[2]
+        current_access = next(
+            cookie.value for cookie in client.cookies if cookie.name == 'access'
+        )
+        current_refresh = next(
+            cookie.value for cookie in client.cookies if cookie.name == 'refresh'
+        )
+        self.assertNotEqual(current_access, current_refresh)
+
+        def clone_client():
+            cloned = ApiClient()
+            for cookie in client.cookies:
+                cloned.cookies.set_cookie(copy(cookie))
+            return cloned
+
+        original = clone_client()
+
+        status, error = client.call('POST', '/api/auth/refresh')
+        self.assertEqual(status, 403)
+        self.assertIn('detail', error)
+
+        # Нельзя подставить access JWT вместо refresh JWT.
+        wrong_type = clone_client()
+        for cookie in list(wrong_type.cookies):
+            if cookie.name == 'refresh':
+                forged = copy(cookie)
+                forged.value = current_access
+                wrong_type.cookies.set_cookie(forged)
+        status, error = wrong_type.call('POST', '/api/auth/refresh', csrf=True)
+        self.assertEqual(status, 401)
+        self.assertIn('detail', error)
+
+        status, result = client.call('POST', '/api/auth/refresh', csrf=True)
+        self.assertEqual(status, 200)
+        self.assertEqual(result['status'], 'ok')
+        rotated_access = next(
+            cookie.value for cookie in client.cookies if cookie.name == 'access'
+        )
+        rotated_refresh = next(
+            cookie.value for cookie in client.cookies if cookie.name == 'refresh'
+        )
+        self.assertNotEqual(current_access, rotated_access)
+        self.assertNotEqual(current_refresh, rotated_refresh)
+
+        status, _ = original.call('GET', '/api/users/me')
+        self.assertEqual(status, 401)
+        status, error = original.call('POST', '/api/auth/refresh', csrf=True)
+        self.assertEqual(status, 401)
+        self.assertIn('detail', error)
+
+        status, me = client.call('GET', '/api/users/me')
+        self.assertEqual(status, 200)
+        self.assertEqual(me['id'], self.user_ids[2])
+
+        before_logout = clone_client()
+        status, error = client.call(
+            'POST', '/api/auth/logout', headers={'X-CSRF-Token': 'invalid'}
+        )
+        self.assertEqual(status, 403)
+        self.assertIn('detail', error)
+        status, _ = client.call('GET', '/api/users/me')
+        self.assertEqual(status, 200)
+
+        status, result = client.call('POST', '/api/auth/logout', csrf=True)
+        self.assertEqual(status, 200)
+        self.assertEqual(result['status'], 'ok')
+        status, error = client.call('GET', '/api/users/me')
+        self.assertEqual(status, 401)
+        self.assertIn('detail', error)
+        status, error = before_logout.call('POST', '/api/auth/refresh', csrf=True)
+        self.assertEqual(status, 401)
+        self.assertIn('detail', error)
 
     def test_openapi_exposes_required_contracts(self):
         status, schema = self.anonymous.call('GET', '/openapi.json')
