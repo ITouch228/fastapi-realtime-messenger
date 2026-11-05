@@ -63,10 +63,6 @@ jobs:
         working-directory: backend
         run: ruff check .
 
-      - name: Ruff formatting diagnostic for auth tests
-        working-directory: backend
-        run: ruff format --diff tests/test_auth_sessions.py || true
-
       - name: Ruff formatting
         working-directory: backend
         run: ruff format --check .
