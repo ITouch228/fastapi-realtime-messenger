@@ -76,7 +76,7 @@ jobs:
         # Redis integration suite is intentionally skipped unless its flag is enabled.
         run: |
           coverage run --branch --source=app -m unittest discover -s tests -p 'test_*.py' -v
-          coverage report --show-missing
+          coverage report --fail-under=45 --show-missing
           coverage xml -o coverage.xml
 
       - name: Publish backend unit coverage report
