@@ -168,7 +168,8 @@ online/offline увеличивают `itmessage:presence:versions` (`HINCRBY`) 
 ## 🧭 Следующие этапы
 
 - [x] **PR #20:** базовая стратегия unit/integration/contract/e2e, HTTP-контракты авторизации/CSRF/ACL, branch coverage в CI.
-- [ ] **Тестовые контракты:** refresh/logout/revocation, реальные PostgreSQL-транзакции и outbox integration, WebSocket ACL/reconnect.
+- [x] **PR #21:** refresh/logout/revocation unit + HTTP-контракты JWT и Redis-сессии.
+- [ ] **Тестовые контракты:** реальные PostgreSQL-транзакции и outbox integration, WebSocket ACL/reconnect, expiry JWT.
 - [ ] **Playwright:** браузерные E2E в отдельном CI job, два пользователя и несколько вкладок.
 
 
