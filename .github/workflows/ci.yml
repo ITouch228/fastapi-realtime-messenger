@@ -71,9 +71,20 @@ jobs:
         working-directory: backend
         run: mypy --package app
 
-      - name: Unit tests
+      - name: Unit tests with branch coverage
         working-directory: backend
-        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        # Redis integration suite is intentionally skipped unless its flag is enabled.
+        run: |
+          coverage run --branch --source=app -m unittest discover -s tests -p 'test_*.py' -v
+          coverage report --show-missing
+          coverage xml -o coverage.xml
+
+      - name: Publish backend unit coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-unit-coverage
+          path: backend/coverage.xml
+          if-no-files-found: error
 
       - name: PostgreSQL migration smoke test (fresh database)
         working-directory: backend
@@ -119,6 +130,7 @@ jobs:
           server_pid=$!
           trap 'cat /tmp/itmessage-smoke.log; kill "$server_pid" 2>/dev/null || true' EXIT
           python tests/smoke_http.py
+          python tests/contracts_http.py
 
   frontend:
     name: Node 22 / ESLint, Prettier
