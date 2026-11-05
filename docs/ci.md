@@ -4,7 +4,7 @@
 
 | Job | Проверки | Внешние сервисы |
 | --- | --- | --- |
-| `backend` — Python 3.12 | `ruff check`, `ruff format --check`, mypy, unit, `alembic upgrade head`, Redis integration, HTTP smoke | PostgreSQL 16 + Redis 7 |
+| `backend` — Python 3.12 | `ruff check`, `ruff format --check`, mypy, unit, `alembic upgrade head`, `alembic check`, `downgrade base` + повторный upgrade, Redis integration, HTTP smoke | PostgreSQL 16 + Redis 7 |
 | `frontend` — Node 22 | ESLint, Prettier | Нет |
 | `docker_compose` | Production Compose, 4 Uvicorn workers, runtime RSA, image secrets, HTTP smoke, рестарт | PostgreSQL + Redis + backend в Docker |
 
@@ -16,6 +16,8 @@ flowchart TD
     CI --> D["docker_compose<br/>4 workers + RSA + restart"]
     B & F & D --> READY["Все jobs успешны → можно рассматривать merge"]
 ```
+
+PostgreSQL job использует **пустую одноразовую БД**, проверяет совпадение схемы с ORM через `alembic check`, а затем повторную установку единственной ревизии с нуля. Вручную выполнять `downgrade base` следует только на тестовой БД: он удаляет все таблицы.
 
 В `docker_compose` используются временные RSA-ключи и временная БД; на завершении volumes удаляются. `backend/tests/smoke_http.py` создаёт учётные записи и сообщения — **не запускайте его на production**. Smoke выполняется и в Python job, и через собранный Docker-образ, чтобы проверить разные пути запуска.
 

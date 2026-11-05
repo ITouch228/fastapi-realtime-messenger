@@ -1,5 +1,4 @@
 import asyncio
-import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -7,7 +6,8 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from app.models import Base, Chat, File, Message, User  # noqa: F401
+from app.config import settings
+from app.models import Base  # все ORM-модели импортируются в app.models
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -31,13 +31,8 @@ target_metadata = Base.metadata
 
 
 def get_database_url() -> str:
-    user = os.getenv('DB_USER')
-    password = os.getenv('DB_PASSWORD')
-    host = os.getenv('DB_HOST', 'localhost')
-    port = os.getenv('DB_PORT', '5432')
-    name = os.getenv('DB_NAME')
-
-    return f'postgresql+asyncpg://{user}:{password}@{host}:{port}/{name}'
+    """Использовать тот же конфиг БД, что и приложение."""
+    return settings.db_url
 
 
 def run_migrations_offline() -> None:
@@ -52,7 +47,7 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option('sqlalchemy.url')
+    url = get_database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
