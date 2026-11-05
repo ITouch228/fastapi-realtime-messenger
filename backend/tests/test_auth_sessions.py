@@ -53,9 +53,7 @@ class TokenRotationUnitTests(unittest.IsolatedAsyncioTestCase):
             patch('app.services.auth.verify_token', return_value=None) as verify,
             self.assertRaises(UnauthorizedError),
         ):
-            await AuthManager.rotate_session(
-                self.session, self.sessions, 'access-jwt'
-            )
+            await AuthManager.rotate_session(self.session, self.sessions, 'access-jwt')
         verify.assert_called_once_with('access-jwt', token_type='refresh')
         self.sessions.get_user_id.assert_not_awaited()
         self.sessions.remove.assert_not_awaited()
