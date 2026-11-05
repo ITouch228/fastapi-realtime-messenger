@@ -10,7 +10,6 @@ import os
 import time
 import unittest
 import urllib.error
-import urllib.parse
 import urllib.request
 from uuid import uuid4
 
