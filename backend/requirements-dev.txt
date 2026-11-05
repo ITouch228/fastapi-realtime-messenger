@@ -2,4 +2,5 @@
 
 ruff==0.7.3
 mypy==1.13.0
+coverage==7.6.12
 pre-commit==4.0.1
