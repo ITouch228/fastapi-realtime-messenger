@@ -167,6 +167,11 @@ online/offline увеличивают `itmessage:presence:versions` (`HINCRBY`) 
 
 ## 🧭 Следующие этапы
 
+- [x] **PR #20:** базовая стратегия unit/integration/contract/e2e, HTTP-контракты авторизации/CSRF/ACL, branch coverage в CI.
+- [ ] **Тестовые контракты:** refresh/logout/revocation, реальные PostgreSQL-транзакции и outbox integration, WebSocket ACL/reconnect.
+- [ ] **Playwright:** браузерные E2E в отдельном CI job, два пользователя и несколько вкладок.
+
+
 - [x] **PR #19:** семь исторических миграций объединены в `001_initial_schema.py`, CI проверяет `alembic check` и повторное создание БД.
 
 
