@@ -5,13 +5,13 @@
 """
 
 import http.cookiejar
-from copy import copy
 import json
 import os
 import time
 import unittest
 import urllib.error
 import urllib.request
+from copy import copy
 from uuid import uuid4
 
 BASE_URL = os.environ.get('TEST_BASE_URL', 'http://127.0.0.1:8000')
