@@ -53,7 +53,9 @@ class ApiClient:
         with response:
             payload = response.read()
             content_type = response.headers.get('Content-Type', '')
-            parsed = json.loads(payload) if 'application/json' in content_type else payload
+            parsed = (
+                json.loads(payload) if 'application/json' in content_type else payload
+            )
             return response.status, parsed
 
 
@@ -130,9 +132,7 @@ class HttpContractTests(unittest.TestCase):
         client = self.clients[0]
         for headers in ({}, {'X-CSRF-Token': 'incorrect'}):
             with self.subTest(headers=headers):
-                status, body = client.call(
-                    'POST', '/api/auth/logout', headers=headers
-                )
+                status, body = client.call('POST', '/api/auth/logout', headers=headers)
                 self.assertEqual(status, 403)
                 self.assertIn('detail', body)
         status, me = client.call('GET', '/api/users/me')
@@ -167,9 +167,7 @@ class HttpContractTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertIn('detail', denied)
 
-        status, denied = outsider.call(
-            'DELETE', f'/api/chats/{chat_id}', csrf=True
-        )
+        status, denied = outsider.call('DELETE', f'/api/chats/{chat_id}', csrf=True)
         self.assertEqual(status, 403)
         self.assertIn('detail', denied)
 
