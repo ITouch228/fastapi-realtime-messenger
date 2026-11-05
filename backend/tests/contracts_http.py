@@ -64,7 +64,7 @@ def multipart_text(fields):
             f'--{boundary}\r\n'
             f'Content-Disposition: form-data; name="{key}"\r\n\r\n'
             f'{value}\r\n'
-        ).encode('utf-8')
+        ).encode()
         for key, value in fields.items()
     ) + f'--{boundary}--\r\n'.encode('ascii')
     return body, {'Content-Type': f'multipart/form-data; boundary={boundary}'}
