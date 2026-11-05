@@ -123,6 +123,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 - [Архитектура и диаграммы](docs/architecture.md)
 - [Data flow и последовательности](docs/data_flow.md)
 - [CI и локальные проверки](docs/ci.md)
+- [Стратегия тестирования и HTTP-контракты](docs/testing.md)
 - [WebSocket и несколько воркеров](docs/ws-multiworker.md)
 - [Секреты Docker](docs/docker-secrets.md)
 - [История изменений](docs/CHANGELOG.md)
