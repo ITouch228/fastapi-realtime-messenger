@@ -58,8 +58,6 @@ services:
       - uploads_data:/app/uploads
       # RSA-ключи не попадают в образ (.dockerignore) — монтируются только в рантайме
       - ./backend/keys:/app/keys:ro
-    ports:
-      - '8000:8000'
     networks:
       - internal
 

@@ -10,3 +10,5 @@ services:
     environment:
       # reload выключен; N воркеров на ядро
       UVICORN_WORKERS: "4"
+    ports:
+      - '8000:8000'

@@ -46,7 +46,17 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=100 
 
 Docker монтирует `backend/keys` в `/app/keys:ro`; процесс работает от UID `10001` и должен иметь права на чтение PEM-файлов. **Никогда не коммитьте RSA private key или `.env`.** Пример безопасной проверки: [docs/docker-secrets.md](docs/docker-secrets.md). В Windows PowerShell вместо `cp` используйте `Copy-Item`; OpenSSL должен быть установлен и доступен в PATH.
 
-Для разработки с автообновлением (Compose автоматически применяет `docker-compose.override.yml`) можно использовать `docker compose up --build`, но этот режим **не является production**.
+### Локальная разработка
+
+Запустите `docker compose up -d --build --wait`. Compose применит dev-конфигурацию с автообновлением кода. Порты хоста распределены по ролям.
+
+| Роль | Адрес |
+| --- | --- |
+| Фронтенд | [http://localhost:8001/](http://localhost:8001/) |
+| FastAPI | `http://localhost:8002/api/` (базовый путь маршрутов) |
+| Документация | [http://localhost:8003/docs](http://localhost:8003/docs) |
+
+На `8001` Nginx передаёт FastAPI также запросы клиента к API и WebSocket. Swagger на `8003` получает схему по `/openapi.json` и отправляет запросы через `/api/`. Для прямой работы с API доступен также [Swagger на порту API](http://localhost:8002/docs). Production через `docker-compose.prod.yml` использует единый порт `8000`.
 
 ### Запуск без Docker
 
